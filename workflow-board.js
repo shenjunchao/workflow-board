@@ -463,6 +463,23 @@
         return { activeId: "ws-default", data: { "ws-default": initialState } };
       }
 
+      function getAppDataUpdatedAt(value) {
+        if (!value || !value.data) return 0;
+        return Math.max(
+          0,
+          ...Object.values(value.data).map((workspace) => Number(workspace?.updatedAt) || 0)
+        );
+      }
+
+      function renderCurrentViewAfterSync() {
+        if (els.editorView.classList.contains("active")) {
+          render();
+        } else {
+          showDashboard();
+          renderDashboard();
+        }
+      }
+
       function normalizeCamera(camera, legacyZoom) {
         return {
           x: Number.isFinite(camera?.x) ? camera.x : 120,
@@ -608,6 +625,9 @@
         aiGenerateBtn: document.querySelector("#aiGenerateBtn"),
         aiDescBtn: document.querySelector("#aiDescBtn"),
         apiConfigBtn: document.querySelector("#apiConfigBtn"),
+        exportWorkspaceBtn: document.querySelector("#exportWorkspaceBtn"),
+        importWorkspaceBtn: document.querySelector("#importWorkspaceBtn"),
+        importWorkspaceInput: document.querySelector("#importWorkspaceInput"),
         authStatus: document.querySelector("#authStatus"),
         loginOpenBtn: document.querySelector("#loginOpenBtn"),
         logoutBtn: document.querySelector("#logoutBtn"),
@@ -769,7 +789,12 @@
 
       async function loadCloudAppData() {
         if (!supabaseClient || !currentUser) return;
-        showLoading("正在同步云端数据...");
+        els.footerText.textContent = "正在后台同步云端数据...";
+
+        const localSnapshot = appData;
+        const localUpdatedAt = getAppDataUpdatedAt(localSnapshot);
+        const localOwner = localStorage.getItem(APP_OWNER_KEY);
+
         const { data, error } = await supabaseClient
           .from(SUPABASE_TABLE)
           .select("app_data")
@@ -777,24 +802,12 @@
           .maybeSingle();
 
         if (error) {
-          hideLoading();
           console.error("Supabase load failed:", error);
-          customAlert("云端数据读取失败，当前仍可继续使用本地数据。");
+          els.footerText.textContent = "本地可用，云端读取失败";
           return;
         }
 
-        if (data?.app_data?.data) {
-          localStorage.setItem(APP_DATA_KEY, JSON.stringify(data.app_data));
-          localStorage.setItem(APP_OWNER_KEY, currentUser.id);
-          appData = initAppData();
-          currentWorkspaceId = appData.activeId;
-          state = appData.data[currentWorkspaceId] || deepClone(defaultState);
-          undoStack = [];
-          pushUndo();
-          showDashboard();
-          renderDashboard();
-        } else {
-          const localOwner = localStorage.getItem(APP_OWNER_KEY);
+        if (!data?.app_data?.data) {
           if (localOwner && localOwner !== currentUser.id) {
             appData = createDefaultAppData();
             currentWorkspaceId = appData.activeId;
@@ -803,14 +816,31 @@
             localStorage.setItem(APP_OWNER_KEY, currentUser.id);
             undoStack = [];
             pushUndo();
-            showDashboard();
-            renderDashboard();
+            renderCurrentViewAfterSync();
           }
           await saveCloudAppDataNow();
+          els.footerText.textContent = "云端同步完成";
+          return;
         }
 
-        hideLoading();
-        els.footerText.textContent = "云端同步完成";
+        const cloudAppData = data.app_data;
+        const cloudUpdatedAt = getAppDataUpdatedAt(cloudAppData);
+
+        if (cloudUpdatedAt > localUpdatedAt) {
+          localStorage.setItem(APP_DATA_KEY, JSON.stringify(cloudAppData));
+          localStorage.setItem(APP_OWNER_KEY, currentUser.id);
+          appData = initAppData();
+          currentWorkspaceId = appData.activeId;
+          state = appData.data[currentWorkspaceId] || deepClone(defaultState);
+          undoStack = [];
+          pushUndo();
+          renderCurrentViewAfterSync();
+          els.footerText.textContent = "已加载云端最新数据";
+        } else {
+          localStorage.setItem(APP_OWNER_KEY, currentUser.id);
+          await saveCloudAppDataNow();
+          els.footerText.textContent = "本地数据已同步到云端";
+        }
       }
 
       async function initAuth() {
@@ -823,7 +853,7 @@
         const { data } = await client.auth.getSession();
         currentUser = data.session?.user || null;
         setAuthUi(currentUser);
-        if (currentUser) await loadCloudAppData();
+        if (currentUser) loadCloudAppData();
 
         client.auth.onAuthStateChange((_event, session) => {
           const nextUser = session?.user || null;
@@ -1066,6 +1096,92 @@
       function queueSave() {
         window.clearTimeout(saveTimer);
         saveTimer = window.setTimeout(() => saveState(), 250);
+      }
+
+      function getExportFileName() {
+        const title = (state.workflowTitle || "workflow-board")
+          .replace(/[\\/:*?"<>|]/g, "-")
+          .replace(/\s+/g, "-")
+          .slice(0, 60);
+        const date = new Date().toISOString().slice(0, 10);
+        return `${title || "workflow-board"}-${date}.json`;
+      }
+
+      function exportCurrentWorkspace() {
+        const payload = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          workspace: {
+            ...deepClone(state),
+            updatedAt: Date.now(),
+          },
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = getExportFileName();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        els.footerText.textContent = "当前项目已导出到本地文件";
+      }
+
+      function normalizeImportedWorkspace(raw) {
+        const imported = raw?.workspace || raw;
+        if (!imported || !Array.isArray(imported.nodes) || !Array.isArray(imported.edges)) {
+          throw new Error("文件格式不正确");
+        }
+
+        const nodeIds = new Set(imported.nodes.map((node) => String(node.id)));
+        const selectedNodeId = nodeIds.has(imported.selectedNodeId) ? imported.selectedNodeId : imported.nodes[0]?.id || null;
+        const selectedNodeIds = (imported.selectedNodeIds || []).filter((id) => nodeIds.has(id));
+
+        return {
+          workflowTitle: imported.workflowTitle || "导入的工作流",
+          projectCategory: imported.projectCategory || "默认分组",
+          updatedAt: Date.now(),
+          selectedNodeId,
+          selectedNodeIds: selectedNodeIds.length ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []),
+          selectedEdgeId: null,
+          camera: normalizeCamera(imported.camera, imported.zoom),
+          nodes: imported.nodes.map(normalizeNode),
+          edges: imported.edges
+            .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+            .map(normalizeEdge),
+        };
+      }
+
+      function importWorkspaceFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          try {
+            const raw = JSON.parse(String(reader.result || "{}"));
+            const importedWorkspace = normalizeImportedWorkspace(raw);
+            customConfirm("导入会覆盖当前项目内容，确认继续？", () => {
+              state = importedWorkspace;
+              appData.data[currentWorkspaceId] = state;
+              undoStack = [];
+              pushUndo();
+              render();
+              fitToNodes();
+              saveState("已导入文件并覆盖当前项目");
+            });
+          } catch (error) {
+            console.error("Import failed:", error);
+            customAlert("导入失败：请选择由本工具导出的 JSON 文件。");
+          } finally {
+            els.importWorkspaceInput.value = "";
+          }
+        });
+        reader.addEventListener("error", () => {
+          els.importWorkspaceInput.value = "";
+          customAlert("文件读取失败，请重新选择。");
+        });
+        reader.readAsText(file, "utf-8");
       }
 
       function getNode(id) {
@@ -2174,6 +2290,9 @@
 
       document.querySelector("#addNodeBtn").addEventListener("click", addNode);
       document.querySelector("#saveBtn").addEventListener("click", () => saveState("已手动保存"));
+      els.exportWorkspaceBtn.addEventListener("click", exportCurrentWorkspace);
+      els.importWorkspaceBtn.addEventListener("click", () => els.importWorkspaceInput.click());
+      els.importWorkspaceInput.addEventListener("change", (event) => importWorkspaceFile(event.target.files?.[0]));
       document.querySelector("#deleteNodeBtn").addEventListener("click", deleteSelectedNode);
       document.querySelector("#fitBtn").addEventListener("click", autoLayout);
       els.connectEdgeBtn.addEventListener("click", toggleConnectMode);
