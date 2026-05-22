@@ -14,7 +14,11 @@
       const MIN_ZOOM = 0.35;
       const MAX_ZOOM = 2;
       const SUPABASE_TABLE = "user_app_data";
+      const SUPABASE_IMAGE_BUCKET = "workflow-images";
       const CLOUD_SAVE_DEBOUNCE_MS = 700;
+      const MAX_IMAGE_SOURCE_BYTES = 12 * 1024 * 1024;
+      const MAX_IMAGE_DIMENSION = 1200;
+      const IMAGE_EXPORT_QUALITY = 0.78;
 
       /* =========================================================================
          Gemini API 配置与请求方法 (智能 AI 核心)
@@ -480,6 +484,132 @@
         }
       }
 
+      function createCloudAppDataSnapshot(sourceAppData) {
+        const snapshot = deepClone(sourceAppData);
+        Object.values(snapshot.data || {}).forEach((workspace) => {
+          (workspace.nodes || []).forEach((node) => {
+            if (node.imageData) {
+              node.imageData = "";
+              node.imageStoredLocally = !node.imagePath;
+            }
+          });
+        });
+        return snapshot;
+      }
+
+      function mergeLocalImagesIntoCloudData(cloudData, localData) {
+        const merged = deepClone(cloudData);
+        Object.entries(merged.data || {}).forEach(([workspaceId, workspace]) => {
+          const localWorkspace = localData?.data?.[workspaceId];
+          if (!localWorkspace?.nodes?.length) return;
+          const localImages = new Map(
+            localWorkspace.nodes
+              .filter((node) => node.imageData)
+              .map((node) => [node.id, node.imageData])
+          );
+          (workspace.nodes || []).forEach((node) => {
+            if (!node.imageData && localImages.has(node.id)) {
+              node.imageData = localImages.get(node.id);
+            }
+          });
+        });
+        return merged;
+      }
+
+      function safeStoragePathPart(value) {
+        return String(value || "item").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
+      }
+
+      function dataUrlToBlob(dataUrl) {
+        const [meta, base64] = dataUrl.split(",");
+        const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new Blob([bytes], { type: mime });
+      }
+
+      function getNodeImagePath(workspaceId, nodeId) {
+        return [
+          currentUser.id,
+          safeStoragePathPart(workspaceId),
+          `${safeStoragePathPart(nodeId)}.jpg`,
+        ].join("/");
+      }
+
+      async function uploadPendingNodeImages() {
+        if (!supabaseClient || !currentUser) return;
+        const uploads = [];
+
+        Object.entries(appData.data || {}).forEach(([workspaceId, workspace]) => {
+          (workspace.nodes || []).forEach((node) => {
+            if (!node.imageData || (node.imagePath && !node.imageDirty)) return;
+            uploads.push({ workspaceId, node });
+          });
+        });
+
+        if (!uploads.length) return;
+
+        for (const item of uploads) {
+          const blob = dataUrlToBlob(item.node.imageData);
+          const path = getNodeImagePath(item.workspaceId, item.node.id);
+          const { error } = await supabaseClient
+            .storage
+            .from(SUPABASE_IMAGE_BUCKET)
+            .upload(path, blob, {
+              contentType: blob.type || "image/jpeg",
+              cacheControl: "31536000",
+              upsert: true,
+            });
+
+          if (error) throw error;
+          item.node.imagePath = path;
+          item.node.imageName = `${safeStoragePathPart(item.node.title)}.jpg`;
+          item.node.imageMime = blob.type || "image/jpeg";
+          item.node.imageSize = blob.size;
+          item.node.imageUpdatedAt = Date.now();
+          item.node.imageDirty = false;
+          item.node.imageStoredLocally = false;
+          signedImageUrlCache.delete(path);
+        }
+
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(appData));
+      }
+
+      async function deleteStoragePaths(paths) {
+        if (!supabaseClient || !currentUser || !paths.length) return;
+        const uniquePaths = Array.from(new Set(paths.filter(Boolean)));
+        if (!uniquePaths.length) return;
+        const { error } = await supabaseClient.storage.from(SUPABASE_IMAGE_BUCKET).remove(uniquePaths);
+        if (error) console.error("Storage delete failed:", error);
+        uniquePaths.forEach((path) => signedImageUrlCache.delete(path));
+      }
+
+      function getNodeImageSrc(node) {
+        if (node.imageData) return node.imageData;
+        if (!node.imagePath || !supabaseClient || !currentUser) return "";
+        const cached = signedImageUrlCache.get(node.imagePath);
+        if (cached) return cached;
+        hydrateNodeImageUrl(node.imagePath);
+        return "";
+      }
+
+      async function hydrateNodeImageUrl(path) {
+        if (signedImageUrlPending.has(path)) return;
+        signedImageUrlPending.add(path);
+        const { data, error } = await supabaseClient
+          .storage
+          .from(SUPABASE_IMAGE_BUCKET)
+          .createSignedUrl(path, 60 * 60);
+        signedImageUrlPending.delete(path);
+        if (error) {
+          console.error("Create signed image URL failed:", error);
+          return;
+        }
+        signedImageUrlCache.set(path, data.signedUrl);
+        renderCurrentViewAfterSync();
+      }
+
       function normalizeCamera(camera, legacyZoom) {
         return {
           x: Number.isFinite(camera?.x) ? camera.x : 120,
@@ -503,6 +633,13 @@
           linkUrl: node.linkUrl || "",
           linkText: node.linkText || "",
           imageData: node.imageData || "",
+          imagePath: node.imagePath || "",
+          imageName: node.imageName || "",
+          imageMime: node.imageMime || "",
+          imageSize: Number.isFinite(node.imageSize) ? node.imageSize : 0,
+          imageUpdatedAt: Number.isFinite(node.imageUpdatedAt) ? node.imageUpdatedAt : 0,
+          imageDirty: Boolean(node.imageDirty),
+          imageStoredLocally: Boolean(node.imageStoredLocally),
         };
       }
 
@@ -552,6 +689,8 @@
       let cloudSaveTimer = null;
       let supabaseClient = null;
       let currentUser = null;
+      const signedImageUrlCache = new Map();
+      const signedImageUrlPending = new Set();
       let clipboard = []; 
 
       // === 历史撤销栈 ===
@@ -770,9 +909,15 @@
 
       async function saveCloudAppDataNow() {
         if (!supabaseClient || !currentUser) return;
+        try {
+          await uploadPendingNodeImages();
+        } catch (error) {
+          console.error("Image upload failed:", error);
+          els.footerText.textContent = "本地已保存，图片云端上传失败";
+        }
         const payload = {
           user_id: currentUser.id,
-          app_data: appData,
+          app_data: createCloudAppDataSnapshot(appData),
           updated_at: new Date().toISOString(),
         };
         const { error } = await supabaseClient
@@ -823,7 +968,7 @@
           return;
         }
 
-        const cloudAppData = data.app_data;
+        const cloudAppData = mergeLocalImagesIntoCloudData(data.app_data, localSnapshot);
         const cloudUpdatedAt = getAppDataUpdatedAt(cloudAppData);
 
         if (cloudUpdatedAt > localUpdatedAt) {
@@ -1184,6 +1329,52 @@
         reader.readAsText(file, "utf-8");
       }
 
+      function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.addEventListener("load", () => resolve(reader.result));
+          reader.addEventListener("error", reject);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImageElement(src) {
+        return new Promise((resolve, reject) => {
+          const image = new Image();
+          image.addEventListener("load", () => resolve(image));
+          image.addEventListener("error", reject);
+          image.src = src;
+        });
+      }
+
+      async function compressImageFile(file) {
+        if (!file.type.startsWith("image/")) {
+          throw new Error("not-image");
+        }
+        if (file.size > MAX_IMAGE_SOURCE_BYTES) {
+          throw new Error("too-large");
+        }
+
+        const sourceDataUrl = await readFileAsDataUrl(file);
+        const image = await loadImageElement(sourceDataUrl);
+        const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight));
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        if (scale === 1 && file.size <= 220 * 1024 && !file.type.includes("png")) {
+          return sourceDataUrl;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        return canvas.toDataURL("image/jpeg", IMAGE_EXPORT_QUALITY);
+      }
+
       function getNode(id) {
         return state.nodes.find((node) => node.id === id) || null;
       }
@@ -1333,8 +1524,9 @@
                </span>`
             : "";
 
-          const imageMarkup = node.imageData
-            ? `<span class="node-image"><img src="${node.imageData}" alt="${escapeHtml(node.title)}" /></span>`
+          const imageSrc = getNodeImageSrc(node);
+          const imageMarkup = imageSrc
+            ? `<span class="node-image"><img src="${imageSrc}" alt="${escapeHtml(node.title)}" /></span>`
             : "";
 
           const linkMarkup = node.linkUrl
@@ -1380,7 +1572,7 @@
             imgEl.addEventListener('dblclick', (e) => {
               e.stopPropagation();
               const modal = document.getElementById('imagePreviewModal');
-              document.getElementById('previewModalImg').src = node.imageData;
+              document.getElementById('previewModalImg').src = getNodeImageSrc(node);
               modal.style.display = 'flex';
             });
           }
@@ -1622,7 +1814,7 @@
           if (field) field.disabled = false;
         });
         els.aiDescBtn.disabled = false;
-        els.removeImageBtn.disabled = !node.imageData;
+        els.removeImageBtn.disabled = !node.imageData && !node.imagePath;
         els.detailTitle.textContent = node.title;
         
         if (document.activeElement !== els.nodeTitleInput) els.nodeTitleInput.value = node.title;
@@ -1643,8 +1835,9 @@
         if (document.activeElement !== els.nodeImageInput) els.nodeImageInput.value = "";
         
         if (!els.imagePreview.classList.contains('drag-over')) {
-          els.imagePreview.innerHTML = node.imageData
-            ? `<img src="${node.imageData}" alt="${escapeHtml(node.title)}" />`
+          const imageSrc = getNodeImageSrc(node);
+          els.imagePreview.innerHTML = imageSrc
+            ? `<img src="${imageSrc}" alt="${escapeHtml(node.title)}" />`
             : "<span>未添加图片</span>";
         }
       }
@@ -1823,7 +2016,7 @@
           if (now - lastTime < 300) { 
             imgTarget.dataset.lastClick = "0"; 
             const modal = document.getElementById('imagePreviewModal');
-            document.getElementById('previewModalImg').src = node.imageData;
+            document.getElementById('previewModalImg').src = getNodeImageSrc(node);
             modal.style.display = 'flex';
             return; 
           } else {
@@ -2004,6 +2197,7 @@
           linkUrl: "",
           linkText: "",
           imageData: "",
+          imagePath: "",
         };
 
         state.nodes.push(node);
@@ -2020,6 +2214,10 @@
         const msg = count === 1 ? `删除“${getNode(state.selectedNodeIds[0])?.title}”？` : `删除这 ${count} 个节点？`;
         
         customConfirm(`${msg}相关连线也会移除。`, () => {
+          const imagePaths = state.nodes
+            .filter((item) => state.selectedNodeIds.includes(item.id))
+            .map((item) => item.imagePath)
+            .filter(Boolean);
           state.nodes = state.nodes.filter((item) => !state.selectedNodeIds.includes(item.id));
           state.edges = state.edges.filter((edge) => !state.selectedNodeIds.includes(edge.source) && !state.selectedNodeIds.includes(edge.target));
           
@@ -2030,6 +2228,7 @@
           state.selectedEdgeId = null;
           render();
           saveState("已删除节点并保存");
+          deleteStoragePaths(imagePaths);
         });
       }
 
@@ -2195,7 +2394,7 @@
         setZoom(state.camera.zoom + (event.deltaY > 0 ? -0.08 : 0.08), event.clientX, event.clientY);
       }
 
-      function addNodeImage(file) {
+      async function addNodeImage(file) {
         if (state.selectedNodeIds.length !== 1) return;
         const node = getSelectedNode();
         if (!node || !file) return;
@@ -2203,23 +2402,32 @@
           els.footerText.textContent = "请选择图片文件";
           return;
         }
-
-        const reader = new FileReader();
-        reader.addEventListener("load", () => {
-          node.imageData = reader.result;
+        try {
+          els.footerText.textContent = "正在压缩图片...";
+          node.imageData = await compressImageFile(file);
+          node.imagePath = "";
+          node.imageDirty = true;
+          node.imageStoredLocally = !currentUser;
           render();
-          saveState("已添加节点图片");
-        });
-        reader.readAsDataURL(file);
+          saveState(currentUser ? "已添加节点图片，正在后台上传云端" : "已添加节点图片，登录后可同步到云端");
+        } catch (error) {
+          console.error("Image compression failed:", error);
+          customAlert(error.message === "too-large" ? "图片过大，请选择 12MB 以内的图片。" : "图片处理失败，请换一张图片重试。");
+        }
       }
 
       function removeNodeImage() {
         if (state.selectedNodeIds.length !== 1) return;
         const node = getSelectedNode();
         if (!node) return;
+        const imagePath = node.imagePath;
         node.imageData = "";
+        node.imagePath = "";
+        node.imageDirty = false;
+        node.imageStoredLocally = false;
         render();
         saveState("已移除节点图片");
+        deleteStoragePaths([imagePath]);
       }
 
       function resetExample() {
@@ -2422,16 +2630,10 @@
 
         const worldPos = screenToWorld(event.clientX, event.clientY);
         
-        // 批量读取所有图片
-        Promise.all(files.map((file, index) => {
-          return new Promise(resolve => {
-            const reader = new FileReader();
-            reader.addEventListener("load", (e) => {
-              resolve({ dataUrl: e.target.result, file, index });
-            });
-            reader.readAsDataURL(file);
-          });
-        })).then(results => {
+        els.footerText.textContent = "正在压缩并创建图片节点...";
+        Promise.all(files.map((file, index) => (
+          compressImageFile(file).then((dataUrl) => ({ dataUrl, file, index }))
+        ))).then(results => {
           const newIds = [];
           results.forEach(({ dataUrl, index }) => {
             const id = `node-${Date.now().toString(36)}-${Math.random().toString(36).substring(2,5)}`;
@@ -2451,6 +2653,9 @@
               linkUrl: "",
               linkText: "",
               imageData: dataUrl,
+              imagePath: "",
+              imageDirty: true,
+              imageStoredLocally: !currentUser,
             };
 
             state.nodes.push(node);
@@ -2460,7 +2665,10 @@
           state.selectedNodeIds = newIds;
           state.selectedNodeId = newIds[0];
           render();
-          saveState(`已批量生成 ${results.length} 个图片节点`);
+          saveState(currentUser ? `已批量生成 ${results.length} 个图片节点，正在后台上传云端` : `已批量生成 ${results.length} 个图片节点，登录后可同步到云端`);
+        }).catch((error) => {
+          console.error("Batch image import failed:", error);
+          customAlert(error.message === "too-large" ? "有图片超过 12MB，请压缩后再导入。" : "图片处理失败，请重新选择图片。");
         });
       });
 
