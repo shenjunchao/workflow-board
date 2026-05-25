@@ -25,7 +25,7 @@
             <circle cx="12" cy="7" r="4"></circle>
           </svg>
         </div>
-        <div class="help-icon" title="帮助与设置">
+        <div class="help-icon" title="版本号：v1.0.0" data-version="版本号：v1.0.0">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
@@ -79,9 +79,6 @@
           <button class="ghost-button" id="exportWorkspaceBtn" type="button">导出文件</button>
           <button class="ghost-button" id="importWorkspaceBtn" type="button">导入覆盖</button>
           <input id="importWorkspaceInput" type="file" accept="application/json,.json" hidden />
-          <button class="icon-button" id="resetBtn" type="button" title="恢复当前示例">↺</button>
-          <button class="ghost-button" id="addNodeBtn" type="button">新增节点</button>
-          <button class="primary-button" id="saveBtn" type="button">保存</button>
         </div>
       </header>
 
@@ -120,7 +117,7 @@
               <span id="zoomLabel">100%</span>
               <button id="zoomInBtn" type="button">＋</button>
             </div>
-            <button id="fitBtn" type="button">自动布局</button>
+            <button id="addNodeBtn" type="button">新增节点</button>
             <button id="connectEdgeBtn" type="button">新增连线</button>
             <button id="deleteEdgeBtn" type="button" disabled>删除连线</button>
             <div class="connection-hint" id="connectionHint">Shift框选 | Ctrl拖拽复制 | Ctrl+Z撤销</div>

@@ -11,8 +11,8 @@
       const NODE_WIDTH = 184;
       const NODE_HEIGHT = 70;
       const GRID_SIZE = 120;
-      const MIN_ZOOM = 0.35;
-      const MAX_ZOOM = 2;
+      const MIN_ZOOM = 0.1;
+      const MAX_ZOOM = 3;
       const SUPABASE_TABLE = "user_app_data";
       const SUPABASE_IMAGE_BUCKET = "workflow-images";
       const CLOUD_SAVE_DEBOUNCE_MS = 700;
@@ -516,6 +516,27 @@
         return merged;
       }
 
+      function prepareCopiedNodeImage(node) {
+        if (!node) return node;
+        if (node.imageData) {
+          node.imagePath = "";
+          node.imageDirty = true;
+          node.imageStoredLocally = !currentUser;
+          return node;
+        }
+
+        if (node.imagePath) {
+          node.imagePath = "";
+          node.imageName = "";
+          node.imageMime = "";
+          node.imageSize = 0;
+          node.imageUpdatedAt = 0;
+          node.imageDirty = false;
+          node.imageStoredLocally = false;
+        }
+        return node;
+      }
+
       function safeStoragePathPart(value) {
         return String(value || "item").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
       }
@@ -683,6 +704,7 @@
       let panning = null;
       let boxSelecting = null;
       let resizing = null;
+      let editingNodeId = null;
       let isConnectMode = false;
       let connectSourceId = null;
       let saveTimer = null;
@@ -914,6 +936,15 @@
         } catch (error) {
           console.error("Image upload failed:", error);
           els.footerText.textContent = "本地已保存，图片云端上传失败";
+          Object.values(appData.data || {}).forEach((workspace) => {
+            (workspace.nodes || []).forEach((node) => {
+              if (node.imageData && !node.imagePath) {
+                node.imageDirty = true;
+                node.imageStoredLocally = true;
+              }
+            });
+          });
+          localStorage.setItem(APP_DATA_KEY, JSON.stringify(appData));
         }
         const payload = {
           user_id: currentUser.id,
@@ -1456,7 +1487,7 @@
         const minX = Math.min(...state.nodes.map((node) => node.x)) - padding;
         const minY = Math.min(...state.nodes.map((node) => node.y)) - padding;
         const maxX = Math.max(...state.nodes.map((node) => node.x + (node.width || NODE_WIDTH))) + padding;
-        const maxY = Math.max(...state.nodes.map((node) => node.x + (node.height || NODE_HEIGHT))) + padding;
+        const maxY = Math.max(...state.nodes.map((node) => node.y + (node.height || NODE_HEIGHT))) + padding;
         return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
       }
 
@@ -1503,11 +1534,13 @@
         els.nodeLayer.innerHTML = "";
 
         state.nodes.forEach((node) => {
-          const card = document.createElement("button");
-          card.type = "button";
+          const card = document.createElement("div");
           const isAutoHeight = !node.height;
-          card.className = `node-card ${node.status} ${state.selectedNodeIds.includes(node.id) ? "selected" : ""} ${isAutoHeight ? "auto-height" : ""}`;
+          const isEditing = editingNodeId === node.id;
+          card.className = `node-card ${node.status} ${state.selectedNodeIds.includes(node.id) ? "selected" : ""} ${isAutoHeight ? "auto-height" : ""} ${isEditing ? "editing" : ""}`;
           card.dataset.id = node.id;
+          card.setAttribute("role", "button");
+          card.tabIndex = 0;
           
           let styleStr = `left: ${node.x}px; top: ${node.y}px;`;
           if (node.width) styleStr += ` width: ${node.width}px;`;
@@ -1536,6 +1569,15 @@
                </a>`
             : "";
 
+          const editToggle = `
+            <button class="node-edit-toggle" type="button" data-id="${node.id}" title="${isEditing ? "退出编辑" : "编辑节点内容"}" aria-label="${isEditing ? "退出编辑" : "编辑节点内容"}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+              </svg>
+            </button>
+          `;
+
           const resizeHandle = `
             <div class="node-resize-handle" data-id="${node.id}">
               <svg viewBox="0 0 12 12">
@@ -1549,15 +1591,16 @@
             </div>
           `;
 
-          const descMarkup = node.description && node.description.trim() !== ""
-            ? `<div class="node-sub"><span>${escapeHtml(node.description)}</span></div>`
+          const descMarkup = isEditing || (node.description && node.description.trim() !== "")
+            ? `<div class="node-sub"><span class="node-editable-description" data-field="description" contenteditable="${isEditing ? "true" : "false"}" spellcheck="false">${escapeHtml(node.description || "")}</span></div>`
             : "";
 
           card.innerHTML = `
             <div style="width: 100%; height: 100%; display: flex; flex-direction: column; flex: 1; min-height: 0;">
+              ${editToggle}
               ${badgeMarkup}
               ${imageMarkup}
-              <span class="node-title" style="flex-shrink: 0;">${escapeHtml(node.title)}</span>
+              <span class="node-title" data-field="title" contenteditable="${isEditing ? "true" : "false"}" spellcheck="false" style="flex-shrink: 0;">${escapeHtml(node.title)}</span>
               ${descMarkup}
               ${linkMarkup}
             </div>
@@ -1565,7 +1608,33 @@
           `;
 
           card.addEventListener("pointerdown", startDrag);
-          card.addEventListener("click", () => handleNodeClick(node.id));
+          card.addEventListener("click", (event) => {
+            if (event.target.closest(".node-edit-toggle") || event.target.closest('[contenteditable="true"]')) return;
+            handleNodeClick(node.id);
+          });
+
+          const editBtn = card.querySelector(".node-edit-toggle");
+          editBtn.addEventListener("pointerdown", (event) => {
+            event.stopPropagation();
+          });
+          editBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleNodeEditMode(node.id);
+          });
+
+          card.querySelectorAll('[contenteditable="true"]').forEach((editable) => {
+            editable.addEventListener("pointerdown", (event) => event.stopPropagation());
+            editable.addEventListener("click", (event) => event.stopPropagation());
+            editable.addEventListener("input", () => {
+              updateNodeInlineText(node.id, editable.dataset.field, editable.textContent || "");
+            });
+            editable.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                toggleNodeEditMode(node.id, false);
+              }
+            });
+          });
 
           const imgEl = card.querySelector('.node-image');
           if (imgEl) {
@@ -1579,6 +1648,43 @@
 
           els.nodeLayer.appendChild(card);
         });
+      }
+
+      function toggleNodeEditMode(nodeId, force = null) {
+        const node = getNode(nodeId);
+        if (!node) return;
+        editingNodeId = force === null ? (editingNodeId === nodeId ? null : nodeId) : (force ? nodeId : null);
+        state.selectedNodeId = nodeId;
+        state.selectedNodeIds = [nodeId];
+        state.selectedEdgeId = null;
+        renderCanvas();
+        renderSelection();
+
+        if (editingNodeId === nodeId) {
+          const titleEl = els.nodeLayer.querySelector(`[data-id="${nodeId}"] .node-title`);
+          if (titleEl) {
+            titleEl.focus();
+            const range = document.createRange();
+            range.selectNodeContents(titleEl);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      }
+
+      function updateNodeInlineText(nodeId, field, value) {
+        const node = getNode(nodeId);
+        if (!node || (field !== "title" && field !== "description")) return;
+        const nextValue = field === "title" ? (value.trim() || "未命名节点") : value;
+        if (node[field] === nextValue) return;
+        node[field] = nextValue;
+        state.selectedNodeId = nodeId;
+        state.selectedNodeIds = [nodeId];
+        renderList();
+        renderDetail();
+        queueSave();
       }
 
       function renderSelection() {
@@ -1999,6 +2105,7 @@
 
       function startDrag(event) {
         if (event.button !== 0 || isConnectMode) return;
+        if (event.target.closest('.node-edit-toggle') || event.target.closest('[contenteditable="true"]')) return;
         
         if (event.target.closest('.node-link')) return;
         if (event.target.closest('.node-resize-handle')) {
@@ -2056,6 +2163,7 @@
             const clone = deepClone(original);
             clone.id = newId;
             clone.status = "waiting";
+            prepareCopiedNodeImage(clone);
             state.nodes.push(clone);
           });
           state.selectedNodeIds = newIds;
@@ -2214,6 +2322,9 @@
         const msg = count === 1 ? `删除“${getNode(state.selectedNodeIds[0])?.title}”？` : `删除这 ${count} 个节点？`;
         
         customConfirm(`${msg}相关连线也会移除。`, () => {
+          if (state.selectedNodeIds.includes(editingNodeId)) {
+            editingNodeId = null;
+          }
           const imagePaths = state.nodes
             .filter((item) => state.selectedNodeIds.includes(item.id))
             .map((item) => item.imagePath)
@@ -2430,17 +2541,6 @@
         deleteStoragePaths([imagePath]);
       }
 
-      function resetExample() {
-        customConfirm("恢复当前示例会覆盖当前工作区数据，确认继续？", () => {
-          state = deepClone(defaultState);
-          isConnectMode = false;
-          connectSourceId = null;
-          render();
-          setTimeout(fitToNodes, 0);
-          saveState("已恢复当前示例");
-        });
-      }
-
       function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
       }
@@ -2497,15 +2597,12 @@
       els.removeImageBtn.addEventListener("click", removeNodeImage);
 
       document.querySelector("#addNodeBtn").addEventListener("click", addNode);
-      document.querySelector("#saveBtn").addEventListener("click", () => saveState("已手动保存"));
       els.exportWorkspaceBtn.addEventListener("click", exportCurrentWorkspace);
       els.importWorkspaceBtn.addEventListener("click", () => els.importWorkspaceInput.click());
       els.importWorkspaceInput.addEventListener("change", (event) => importWorkspaceFile(event.target.files?.[0]));
       document.querySelector("#deleteNodeBtn").addEventListener("click", deleteSelectedNode);
-      document.querySelector("#fitBtn").addEventListener("click", autoLayout);
       els.connectEdgeBtn.addEventListener("click", toggleConnectMode);
       els.deleteEdgeBtn.addEventListener("click", deleteSelectedEdge);
-      document.querySelector("#resetBtn").addEventListener("click", resetExample);
       els.newWorkspaceBtn.addEventListener("click", createNewWorkspace);
       document.querySelector("#zoomInBtn").addEventListener("click", () => setZoom(state.camera.zoom + 0.1));
       document.querySelector("#zoomOutBtn").addEventListener("click", () => setZoom(state.camera.zoom - 0.1));
@@ -2595,7 +2692,13 @@
               clipboard.forEach(original => {
                 const newId = `node-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
                 newIds.push(newId);
-                const clone = { ...original, id: newId, x: original.x + 20, y: original.y + 20, status: "waiting" };
+                const clone = prepareCopiedNodeImage({
+                  ...deepClone(original),
+                  id: newId,
+                  x: original.x + 20,
+                  y: original.y + 20,
+                  status: "waiting",
+                });
                 state.nodes.push(clone);
                 original.x += 20;
                 original.y += 20;

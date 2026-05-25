@@ -26,12 +26,18 @@
         box-sizing: border-box;
       }
 
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+      }
+
       body {
         margin: 0;
-        min-height: 100vh;
+        min-height: 100%;
         color: var(--text);
         background: var(--bg);
-        overflow-x: hidden;
+        overflow: hidden;
       }
 
       button,
@@ -103,7 +109,8 @@
       .view-container {
         display: none;
         width: 100vw;
-        min-height: 100vh;
+        height: 100vh;
+        min-height: 0;
       }
       .view-container.active {
         display: block;
@@ -132,6 +139,7 @@
 
       .dash-sidebar .user-avatar,
       .dash-sidebar .help-icon {
+        position: relative;
         width: 36px;
         height: 36px;
         border-radius: 50%;
@@ -146,6 +154,34 @@
       .dash-sidebar .user-avatar:hover,
       .dash-sidebar .help-icon:hover {
         background: var(--soft);
+      }
+
+      .dash-sidebar .help-icon::after {
+        content: attr(data-version);
+        position: absolute;
+        left: calc(100% + 10px);
+        bottom: 3px;
+        z-index: 50;
+        width: max-content;
+        max-width: 180px;
+        padding: 6px 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        box-shadow: 0 8px 24px rgba(29, 45, 78, 0.12);
+        color: var(--text);
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translateX(-4px);
+        pointer-events: none;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+
+      .dash-sidebar .help-icon:hover::after {
+        opacity: 1;
+        transform: translateX(0);
       }
 
       .dash-main {
@@ -355,8 +391,11 @@
          ========================================= */
       #editorView.active {
         display: grid;
-        grid-template-rows: 64px 1fr 28px;
+        grid-template-rows: 64px minmax(0, 1fr) 28px;
         background: linear-gradient(#fff, #f8fafc 45%);
+        height: 100vh;
+        min-height: 0;
+        overflow: hidden;
       }
 
       .topbar {
@@ -366,6 +405,8 @@
         padding: 0 24px;
         border-bottom: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.92);
+        min-width: 0;
+        overflow: hidden;
       }
 
       .brand {
@@ -555,7 +596,9 @@
       }
 
       .workspace {
+        height: 100%;
         min-height: 0;
+        overflow: hidden;
         display: grid;
         grid-template-columns: 260px minmax(520px, 1fr) 300px;
         border-bottom: 1px solid var(--line);
@@ -565,6 +608,8 @@
         display: grid;
         grid-template-columns: 58px 1fr;
         min-width: 0;
+        min-height: 0;
+        overflow: hidden;
         border-right: 1px solid var(--line);
         background: var(--surface);
       }
@@ -620,6 +665,8 @@
       .list-panel {
         padding: 20px 14px;
         min-width: 0;
+        min-height: 0;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
       }
@@ -660,6 +707,7 @@
 
       .node-list-container {
         flex: 1;
+        min-height: 0;
         overflow-y: auto;
         margin-top: 14px;
         padding-right: 4px;
@@ -797,6 +845,7 @@
         position: relative;
         overflow: hidden;
         min-height: 0;
+        height: 100%;
         cursor: default;
       }
 
@@ -899,6 +948,66 @@
         overflow: hidden; 
       }
 
+      .node-edit-toggle {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 5;
+        width: 24px;
+        height: 24px;
+        min-height: 24px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.86);
+        color: #8b96aa;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.16s ease, border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+      }
+
+      .node-card:hover .node-edit-toggle,
+      .node-card.selected .node-edit-toggle,
+      .node-card.editing .node-edit-toggle {
+        opacity: 1;
+      }
+
+      .node-edit-toggle:hover,
+      .node-card.editing .node-edit-toggle {
+        border-color: #b8cffb;
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .node-card.editing {
+        cursor: default;
+      }
+
+      .node-card.editing:active {
+        cursor: default;
+      }
+
+      .node-card.editing .node-title,
+      .node-card.editing .node-editable-description {
+        outline: 1px dashed #b8cffb;
+        outline-offset: 3px;
+        border-radius: 4px;
+        background: rgba(234, 243, 255, 0.55);
+        cursor: text;
+      }
+
+      .node-card.editing .node-editable-description {
+        min-height: 42px;
+      }
+
+      .node-card.editing .node-title:focus,
+      .node-card.editing .node-editable-description:focus {
+        outline-color: var(--blue);
+        background: #fff;
+      }
+
       /* ==== 智能弹性高度核心逻辑 ==== */
       .node-card.auto-height {
         height: auto !important; 
@@ -937,8 +1046,9 @@
         font-weight: 600;
         padding: 4px 8px;
         border-radius: 6px;
-        margin-bottom: 4px;
+        margin-bottom: 10px;
         width: fit-content;
+        max-width: calc(100% - 34px);
         transition: background-color 0.2s, color 0.2s;
       }
       .node-badge svg {
@@ -953,14 +1063,16 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 13px;
+        font-size: 17px;
         font-weight: 650;
+        line-height: 1.35;
+        margin-bottom: 10px;
       }
 
       .node-sub {
         display: flex;
         flex-direction: column;
-        margin-top: 5px;
+        margin-top: 0;
         color: var(--muted);
         font-size: 11px;
         min-height: 0;
@@ -1112,6 +1224,7 @@
 
       .detail-panel {
         min-width: 0;
+        min-height: 0;
         padding: 18px;
         border-left: 1px solid var(--line);
         background: var(--surface);
@@ -1352,6 +1465,8 @@
         color: var(--muted);
         background: var(--surface);
         font-size: 12px;
+        min-width: 0;
+        overflow: hidden;
       }
 
       .live-dot {
@@ -1420,7 +1535,7 @@
 
       @media (max-width: 760px) {
         .app-shell {
-          grid-template-rows: auto 1fr 28px;
+          grid-template-rows: auto minmax(0, 1fr) 28px;
         }
 
         .topbar {
@@ -1434,7 +1549,8 @@
           width: 100%;
         }
 
-        .top-actions .ghost-button,\n        .top-actions .primary-button {
+        .top-actions .ghost-button,
+        .top-actions .primary-button {
           flex: 1;
         }
 
