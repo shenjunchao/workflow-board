@@ -15,7 +15,7 @@
       const MAX_ZOOM = 3;
       const SUPABASE_TABLE = "user_app_data";
       const SUPABASE_IMAGE_BUCKET = "workflow-images";
-      const CLOUD_SAVE_DEBOUNCE_MS = 700;
+      const CLOUD_SAVE_DEBOUNCE_MS = 350;
       const MAX_IMAGE_SOURCE_BYTES = 12 * 1024 * 1024;
       const MAX_IMAGE_DIMENSION = 1200;
       const IMAGE_EXPORT_QUALITY = 0.78;
@@ -497,6 +497,13 @@
         return snapshot;
       }
 
+      function persistCurrentStateToLocalStorage() {
+        state.updatedAt = Date.now();
+        appData.data[currentWorkspaceId] = state;
+        appData.activeId = currentWorkspaceId;
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(appData));
+      }
+
       function mergeLocalImagesIntoCloudData(cloudData, localData) {
         const merged = deepClone(cloudData);
         Object.entries(merged.data || {}).forEach(([workspaceId, workspace]) => {
@@ -513,6 +520,39 @@
             }
           });
         });
+        return merged;
+      }
+
+      function mergeAppDataByWorkspace(cloudData, localData) {
+        const merged = {
+          activeId: localData?.activeId || cloudData?.activeId || "ws-default",
+          data: {},
+        };
+        const workspaceIds = new Set([
+          ...Object.keys(cloudData?.data || {}),
+          ...Object.keys(localData?.data || {}),
+        ]);
+
+        workspaceIds.forEach((workspaceId) => {
+          const cloudWorkspace = cloudData?.data?.[workspaceId];
+          const localWorkspace = localData?.data?.[workspaceId];
+          if (!cloudWorkspace) {
+            merged.data[workspaceId] = deepClone(localWorkspace);
+            return;
+          }
+          if (!localWorkspace) {
+            merged.data[workspaceId] = deepClone(cloudWorkspace);
+            return;
+          }
+
+          const cloudUpdatedAt = Number(cloudWorkspace.updatedAt) || 0;
+          const localUpdatedAt = Number(localWorkspace.updatedAt) || 0;
+          merged.data[workspaceId] = deepClone(localUpdatedAt > cloudUpdatedAt ? localWorkspace : cloudWorkspace);
+        });
+
+        if (!merged.data[merged.activeId]) {
+          merged.activeId = Object.keys(merged.data)[0] || "ws-default";
+        }
         return merged;
       }
 
@@ -709,8 +749,11 @@
       let connectSourceId = null;
       let saveTimer = null;
       let cloudSaveTimer = null;
+      let cloudSaveInFlight = false;
+      let cloudSaveQueued = false;
       let supabaseClient = null;
       let currentUser = null;
+      let currentAccessToken = null;
       const signedImageUrlCache = new Map();
       const signedImageUrlPending = new Set();
       let clipboard = []; 
@@ -918,6 +961,7 @@
         showLoading("正在退出...");
         await supabaseClient.auth.signOut();
         currentUser = null;
+        currentAccessToken = null;
         hideLoading();
         setAuthUi(null);
         els.footerText.textContent = "已退出账号，当前使用本地模式";
@@ -929,10 +973,31 @@
         cloudSaveTimer = window.setTimeout(saveCloudAppDataNow, CLOUD_SAVE_DEBOUNCE_MS);
       }
 
-      async function saveCloudAppDataNow() {
+      async function saveCloudAppDataNow(options = {}) {
         if (!supabaseClient || !currentUser) return;
+        if (cloudSaveInFlight) {
+          cloudSaveQueued = true;
+          return;
+        }
+
+        cloudSaveInFlight = true;
         try {
-          await uploadPendingNodeImages();
+          do {
+            cloudSaveQueued = false;
+            await saveCloudAppDataOnce(options);
+          } while (cloudSaveQueued);
+        } finally {
+          cloudSaveInFlight = false;
+        }
+      }
+
+      async function saveCloudAppDataOnce(options = {}) {
+        if (!supabaseClient || !currentUser) return;
+        persistCurrentStateToLocalStorage();
+        try {
+          if (!options.skipImages) {
+            await uploadPendingNodeImages();
+          }
         } catch (error) {
           console.error("Image upload failed:", error);
           els.footerText.textContent = "本地已保存，图片云端上传失败";
@@ -960,6 +1025,39 @@
           els.footerText.textContent = "本地已保存，云端同步失败";
         } else {
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
+          els.footerText.textContent = "本地和云端已同步";
+        }
+      }
+
+      function saveCloudAppDataWithKeepalive() {
+        if (!currentUser || !currentAccessToken) return false;
+        const config = getSupabaseConfig();
+        if (!config.url || !config.anonKey) return false;
+
+        const payload = JSON.stringify({
+          user_id: currentUser.id,
+          app_data: createCloudAppDataSnapshot(appData),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (payload.length > 60000) return false;
+
+        try {
+          fetch(`${config.url.replace(/\/$/, "")}/rest/v1/${SUPABASE_TABLE}?on_conflict=user_id`, {
+            method: "POST",
+            keepalive: true,
+            headers: {
+              apikey: config.anonKey,
+              Authorization: `Bearer ${currentAccessToken}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates,return=minimal",
+            },
+            body: payload,
+          }).catch((error) => console.error("Supabase keepalive save failed:", error));
+          return true;
+        } catch (error) {
+          console.error("Supabase keepalive save failed:", error);
+          return false;
         }
       }
 
@@ -967,7 +1065,7 @@
         if (!supabaseClient || !currentUser) return;
         els.footerText.textContent = "正在后台同步云端数据...";
 
-        const localSnapshot = appData;
+        const localSnapshot = deepClone(appData);
         const localUpdatedAt = getAppDataUpdatedAt(localSnapshot);
         const localOwner = localStorage.getItem(APP_OWNER_KEY);
 
@@ -1001,6 +1099,27 @@
 
         const cloudAppData = mergeLocalImagesIntoCloudData(data.app_data, localSnapshot);
         const cloudUpdatedAt = getAppDataUpdatedAt(cloudAppData);
+        const mergedAppData = mergeAppDataByWorkspace(cloudAppData, localSnapshot);
+        const mergedUpdatedAt = getAppDataUpdatedAt(mergedAppData);
+
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(mergedAppData));
+        localStorage.setItem(APP_OWNER_KEY, currentUser.id);
+        appData = initAppData();
+        currentWorkspaceId = appData.activeId;
+        state = appData.data[currentWorkspaceId] || deepClone(defaultState);
+        undoStack = [];
+        pushUndo();
+        renderCurrentViewAfterSync();
+
+        if (mergedUpdatedAt > cloudUpdatedAt || localUpdatedAt > cloudUpdatedAt) {
+          await saveCloudAppDataNow();
+          els.footerText.textContent = "本地较新的项目已同步到云端";
+        } else if (cloudUpdatedAt > localUpdatedAt) {
+          els.footerText.textContent = "已加载云端最新数据";
+        } else {
+          els.footerText.textContent = "本地和云端已同步";
+        }
+        return;
 
         if (cloudUpdatedAt > localUpdatedAt) {
           localStorage.setItem(APP_DATA_KEY, JSON.stringify(cloudAppData));
@@ -1028,6 +1147,7 @@
 
         const { data } = await client.auth.getSession();
         currentUser = data.session?.user || null;
+        currentAccessToken = data.session?.access_token || null;
         setAuthUi(currentUser);
         if (currentUser) loadCloudAppData();
 
@@ -1035,6 +1155,7 @@
           const nextUser = session?.user || null;
           const shouldLoadCloud = !currentUser && nextUser;
           currentUser = nextUser;
+          currentAccessToken = session?.access_token || null;
           setAuthUi(currentUser);
           if (shouldLoadCloud) loadCloudAppData();
         });
@@ -1254,10 +1375,7 @@
          编辑器核心逻辑
          ======================= */
       function saveState(message = "已自动保存到浏览器本地") {
-        state.updatedAt = Date.now();
-        appData.data[currentWorkspaceId] = state;
-        appData.activeId = currentWorkspaceId;
-        localStorage.setItem(APP_DATA_KEY, JSON.stringify(appData));
+        persistCurrentStateToLocalStorage();
         queueCloudSave();
         
         pushUndo();
@@ -1270,8 +1388,27 @@
       }
 
       function queueSave() {
+        persistCurrentStateToLocalStorage();
+        queueCloudSave();
         window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => saveState(), 250);
+        saveTimer = window.setTimeout(() => {
+          pushUndo();
+          els.footerText.textContent = "已自动保存到浏览器本地";
+        }, 250);
+      }
+
+      function flushPendingSaves(options = {}) {
+        window.clearTimeout(saveTimer);
+        window.clearTimeout(cloudSaveTimer);
+        persistCurrentStateToLocalStorage();
+
+        if (!supabaseClient || !currentUser) return;
+
+        if (options.keepalive && saveCloudAppDataWithKeepalive()) {
+          return;
+        }
+
+        saveCloudAppDataNow({ skipImages: true });
       }
 
       function getExportFileName() {
@@ -2653,6 +2790,20 @@
          if(els.editorView.classList.contains("active")) {
            render();
          }
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          flushPendingSaves({ keepalive: true });
+        }
+      });
+
+      window.addEventListener("pagehide", () => {
+        flushPendingSaves({ keepalive: true });
+      });
+
+      window.addEventListener("beforeunload", () => {
+        flushPendingSaves({ keepalive: true });
       });
       
       els.canvasViewport.addEventListener("wheel", zoomWithWheel, { passive: false });
