@@ -835,6 +835,7 @@
         authStatus: document.querySelector("#authStatus"),
         loginOpenBtn: document.querySelector("#loginOpenBtn"),
         logoutBtn: document.querySelector("#logoutBtn"),
+        forceCloudUploadBtn: document.querySelector("#forceCloudUploadBtn"),
         authModal: document.querySelector("#authModal"),
         authEmailInput: document.querySelector("#authEmailInput"),
         authPasswordInput: document.querySelector("#authPasswordInput"),
@@ -880,11 +881,19 @@
           els.authStatus.textContent = user.email || "已登录";
           els.loginOpenBtn.hidden = true;
           els.logoutBtn.hidden = false;
+          if (els.forceCloudUploadBtn) {
+            els.forceCloudUploadBtn.disabled = false;
+            els.forceCloudUploadBtn.title = "一键上传云端";
+          }
           return;
         }
 
         els.loginOpenBtn.hidden = false;
         els.logoutBtn.hidden = true;
+        if (els.forceCloudUploadBtn) {
+          els.forceCloudUploadBtn.disabled = true;
+          els.forceCloudUploadBtn.title = "登录后可上传云端";
+        }
         if (!configured) {
           els.authStatus.textContent = "本地模式";
           els.loginOpenBtn.title = "填写 supabase-config.js 后可登录同步";
@@ -1027,6 +1036,69 @@
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
           els.footerText.textContent = "本地和云端已同步";
         }
+      }
+
+      function stableStringify(value) {
+        if (Array.isArray(value)) {
+          return `[${value.map(stableStringify).join(",")}]`;
+        }
+        if (value && typeof value === "object") {
+          return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+        }
+        return JSON.stringify(value);
+      }
+
+      function delay(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      async function waitForCloudSaveIdle() {
+        while (cloudSaveInFlight) {
+          cloudSaveQueued = true;
+          await delay(80);
+        }
+      }
+
+      async function forceUploadAllLocalDataToCloud() {
+        if (!isSupabaseConfigured() || !initSupabaseClient()) {
+          customAlert("请先配置 Supabase URL 和 anon key。");
+          return;
+        }
+        if (!currentUser) {
+          customAlert("请先登录账号，再上传云端。");
+          return;
+        }
+
+        customConfirm("这会把当前浏览器里的全部项目数据覆盖上传到云端。确认继续？", async () => {
+          try {
+            showLoading("正在上传当前数据到云端...");
+            window.clearTimeout(saveTimer);
+            window.clearTimeout(cloudSaveTimer);
+            persistCurrentStateToLocalStorage();
+            await waitForCloudSaveIdle();
+            await saveCloudAppDataNow({ force: true });
+
+            const expectedSnapshot = createCloudAppDataSnapshot(appData);
+            const { data, error } = await supabaseClient
+              .from(SUPABASE_TABLE)
+              .select("app_data")
+              .eq("user_id", currentUser.id)
+              .maybeSingle();
+
+            if (error) throw error;
+            if (stableStringify(data?.app_data) !== stableStringify(expectedSnapshot)) {
+              throw new Error("云端校验失败：上传后的数据和本地数据不一致。");
+            }
+
+            localStorage.setItem(APP_OWNER_KEY, currentUser.id);
+            hideLoading();
+            customAlert("上传完成。当前浏览器里的全部项目数据已覆盖同步到云端。");
+          } catch (error) {
+            console.error("Force cloud upload failed:", error);
+            hideLoading();
+            customAlert(error.message || "上传失败，请检查网络、Supabase 配置和登录状态。");
+          }
+        });
       }
 
       function saveCloudAppDataWithKeepalive() {
@@ -2753,6 +2825,9 @@
       });
       els.aiDescBtn.addEventListener("click", generateAIDescription);
       els.apiConfigBtn.addEventListener("click", () => configureGeminiApiKey());
+      if (els.forceCloudUploadBtn) {
+        els.forceCloudUploadBtn.addEventListener("click", forceUploadAllLocalDataToCloud);
+      }
       els.loginOpenBtn.addEventListener("click", openAuthModal);
       els.logoutBtn.addEventListener("click", signOutUser);
       els.authCancelBtn.addEventListener("click", closeAuthModal);
