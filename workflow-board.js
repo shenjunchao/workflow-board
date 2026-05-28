@@ -442,9 +442,10 @@
           initialState.updatedAt = initialState.updatedAt || Date.now();
           initialState.projectCategory = initialState.projectCategory || "榛樿鍒嗙粍";
           
-          data = { activeId: "ws-default", data: { "ws-default": initialState } };
+          data = { activeId: "ws-default", data: { "ws-default": initialState }, deletedWorkspaces: {} };
         }
 
+        data.deletedWorkspaces = normalizeDeletedWorkspaces(data.deletedWorkspaces, data.deletedWorkspaceIds);
         if (!data.data[data.activeId]) data.activeId = Object.keys(data.data)[0] || "ws-default";
 
         for (const key in data.data) {
@@ -467,15 +468,48 @@
       function createDefaultAppData() {
         const initialState = deepClone(defaultState);
         initialState.updatedAt = Date.now();
-        return { activeId: "ws-default", data: { "ws-default": initialState } };
+        return { activeId: "ws-default", data: { "ws-default": initialState }, deletedWorkspaces: {} };
       }
 
       function getAppDataUpdatedAt(value) {
         if (!value || !value.data) return 0;
         return Math.max(
           0,
-          ...Object.values(value.data).map((workspace) => Number(workspace?.updatedAt) || 0)
+          ...Object.values(value.data).map((workspace) => Number(workspace?.updatedAt) || 0),
+          ...Object.values(normalizeDeletedWorkspaces(value.deletedWorkspaces, value.deletedWorkspaceIds))
         );
+      }
+
+      function normalizeDeletedWorkspaces(deletedWorkspaces, legacyDeletedWorkspaceIds) {
+        const result = {};
+        if (deletedWorkspaces && typeof deletedWorkspaces === "object" && !Array.isArray(deletedWorkspaces)) {
+          Object.entries(deletedWorkspaces).forEach(([id, timestamp]) => {
+            const deletedAt = Number(timestamp) || 0;
+            if (id && deletedAt > 0) result[id] = deletedAt;
+          });
+        }
+        (legacyDeletedWorkspaceIds || []).forEach((id) => {
+          if (id && !result[id]) result[id] = Date.now();
+        });
+        return result;
+      }
+
+      function markWorkspaceDeleted(workspaceId) {
+        if (!workspaceId) return;
+        appData.deletedWorkspaces = normalizeDeletedWorkspaces(appData.deletedWorkspaces, appData.deletedWorkspaceIds);
+        appData.deletedWorkspaces[workspaceId] = Date.now();
+        delete appData.deletedWorkspaceIds;
+      }
+
+      function mergeDeletedWorkspaceMaps(...maps) {
+        const result = {};
+        maps.forEach((map) => {
+          Object.entries(map || {}).forEach(([id, timestamp]) => {
+            const deletedAt = Number(timestamp) || 0;
+            if (id && deletedAt > (result[id] || 0)) result[id] = deletedAt;
+          });
+        });
+        return result;
       }
 
       function renderCurrentViewAfterSync() {
@@ -501,6 +535,12 @@
       }
 
       function persistCurrentStateToLocalStorage() {
+        if (!appData.data[currentWorkspaceId]) {
+          const fallbackId = appData.data[appData.activeId] ? appData.activeId : Object.keys(appData.data)[0];
+          if (!fallbackId) appData = createDefaultAppData();
+          currentWorkspaceId = fallbackId || appData.activeId;
+          state = appData.data[currentWorkspaceId];
+        }
         state.updatedAt = Date.now();
         appData.data[currentWorkspaceId] = state;
         appData.activeId = currentWorkspaceId;
@@ -527,9 +567,14 @@
       }
 
       function mergeAppDataByWorkspace(cloudData, localData) {
+        const deletedWorkspaces = mergeDeletedWorkspaceMaps(
+          normalizeDeletedWorkspaces(cloudData?.deletedWorkspaces, cloudData?.deletedWorkspaceIds),
+          normalizeDeletedWorkspaces(localData?.deletedWorkspaces, localData?.deletedWorkspaceIds)
+        );
         const merged = {
           activeId: localData?.activeId || cloudData?.activeId || "ws-default",
           data: {},
+          deletedWorkspaces,
         };
         const workspaceIds = new Set([
           ...Object.keys(cloudData?.data || {}),
@@ -539,6 +584,13 @@
         workspaceIds.forEach((workspaceId) => {
           const cloudWorkspace = cloudData?.data?.[workspaceId];
           const localWorkspace = localData?.data?.[workspaceId];
+          const deletedAt = Number(deletedWorkspaces[workspaceId]) || 0;
+          const newestWorkspaceUpdatedAt = Math.max(
+            Number(cloudWorkspace?.updatedAt) || 0,
+            Number(localWorkspace?.updatedAt) || 0
+          );
+          if (deletedAt >= newestWorkspaceUpdatedAt) return;
+
           if (!cloudWorkspace) {
             merged.data[workspaceId] = deepClone(localWorkspace);
             return;
@@ -1472,16 +1524,26 @@
       }
 
       function deleteWorkspace(id) {
-        customConfirm("确定要删除这个项目吗？操作不可恢复。", () => {
+        customConfirm("确定要删除这个项目吗？操作不可恢复。", async () => {
+          markWorkspaceDeleted(id);
           delete appData.data[id];
           if (Object.keys(appData.data).length === 0) {
-             appData.data["ws-default"] = deepClone(defaultState);
-             appData.activeId = "ws-default";
+             const fallbackId = `ws-${Date.now().toString(36)}`;
+             const fallbackState = deepClone(defaultState);
+             fallbackState.workflowTitle = "未命名项目";
+             fallbackState.updatedAt = Date.now();
+             appData.data[fallbackId] = fallbackState;
+             appData.activeId = fallbackId;
           } else if (appData.activeId === id) {
              appData.activeId = Object.keys(appData.data)[0];
           }
+          currentWorkspaceId = appData.activeId;
+          state = appData.data[currentWorkspaceId];
           localStorage.setItem(APP_DATA_KEY, JSON.stringify(appData));
-          queueCloudSave();
+          if (supabaseClient && currentUser) {
+            window.clearTimeout(cloudSaveTimer);
+            await saveCloudAppDataNow({ skipImages: true });
+          }
           renderDashboard(); 
         });
       }

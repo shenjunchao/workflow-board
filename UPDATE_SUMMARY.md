@@ -19,11 +19,17 @@
 
 - 修复脚本中被编码破坏的未闭合字符串，`workflow-board.js` 已通过语法检查。
 - 保持已有本地数据、云端数据和 Supabase 数据结构不变。
+- 修复项目删除后又重新出现的问题：
+  - 删除项目时同步切换当前活动项目，避免自动保存把旧项目重新写回本地。
+  - 增加已删除项目记录，云端旧快照合并时不会把已删除项目恢复出来。
+  - 删除后优先触发一次云端保存，减少多设备数据不一致。
 
 ## 需要上传到 GitHub 的文件
 
 - `workflow-board.js`
 - `workflow-board.css`
+- `index.html`
+- `workflow-board.html`
 - `UPDATE_SUMMARY.md`
 
 ## 上线后检查
