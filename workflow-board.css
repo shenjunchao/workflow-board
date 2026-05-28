@@ -1179,6 +1179,15 @@
         cursor: zoom-in; 
       }
 
+      .node-image.image-loading,
+      .image-block .image-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #8b96aa;
+        font-size: 12px;
+      }
+
       /* 拖拽调整大小手柄 */
       .node-resize-handle {
         position: absolute;

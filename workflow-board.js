@@ -1,4 +1,4 @@
-      const APP_DATA_KEY = "minimalWorkflowBoard.appData";
+﻿      const APP_DATA_KEY = "minimalWorkflowBoard.appData";
       const APP_OWNER_KEY = "minimalWorkflowBoard.appOwner";
       const LEGACY_STORAGE_KEY = "minimalWorkflowBoard.v2";
       const GEMINI_API_KEY_STORAGE_KEY = "minimalWorkflowBoard.geminiApiKey";
@@ -19,9 +19,12 @@
       const MAX_IMAGE_SOURCE_BYTES = 12 * 1024 * 1024;
       const MAX_IMAGE_DIMENSION = 1200;
       const IMAGE_EXPORT_QUALITY = 0.78;
+      const SIGNED_IMAGE_URL_TTL_SECONDS = 60 * 60;
+      const SIGNED_IMAGE_BATCH_SIZE = 40;
+      const SIGNED_IMAGE_BATCH_DELAY_MS = 80;
 
       /* =========================================================================
-         Gemini API 配置与请求方法 (智能 AI 核心)
+         Gemini API 閰嶇疆涓庤姹傛柟娉?(鏅鸿兘 AI 鏍稿績)
          ========================================================================= */
       function getGeminiApiConfig() {
         let saved = null;
@@ -67,7 +70,7 @@
         const ready = hasGeminiApiConfig();
         btn.textContent = ready ? "API 已配置" : "配置 API";
         btn.classList.toggle("api-ready", ready);
-        btn.title = ready ? "已配置 API Key、请求地址与模型 ID，点击可重新配置" : "配置 API Key、请求地址与模型 ID 后才能使用 AI 功能";
+        btn.title = ready ? "宸查厤缃?API Key銆佽姹傚湴鍧€涓庢ā鍨?ID锛岀偣鍑诲彲閲嶆柊閰嶇疆" : "閰嶇疆 API Key銆佽姹傚湴鍧€涓庢ā鍨?ID 鍚庢墠鑳戒娇鐢?AI 鍔熻兘";
       }
 
       function configureGeminiApiKey(afterSave = null) {
@@ -79,16 +82,16 @@
         const cancelBtn = document.getElementById('confirmCancelBtn');
         const okBtn = document.getElementById('confirmOkBtn');
 
-        title.textContent = "配置 AI API";
+        title.textContent = "閰嶇疆 AI API";
         message.innerHTML = `
-          <span class="api-config-note">配置会保存在当前浏览器本地。请求地址可填写基础地址，也可填写包含 {modelId} 和 {apiKey} 的完整地址。</span>
+          <span class="api-config-note">閰嶇疆浼氫繚瀛樺湪褰撳墠娴忚鍣ㄦ湰鍦般€傝姹傚湴鍧€鍙～鍐欏熀纭€鍦板潃锛屼篃鍙～鍐欏寘鍚?{modelId} 鍜?{apiKey} 鐨勫畬鏁村湴鍧€銆?/span>
           <label class="api-config-field">API Key
-            <input id="apiConfigKeyInput" type="password" autocomplete="off" value="${escapeHtml(current.apiKey)}" placeholder="请输入 API Key" />
+            <input id="apiConfigKeyInput" type="password" autocomplete="off" value="${escapeHtml(current.apiKey)}" placeholder="璇疯緭鍏?API Key" />
           </label>
-          <label class="api-config-field">请求地址
+          <label class="api-config-field">璇锋眰鍦板潃
             <input id="apiConfigEndpointInput" type="url" value="${escapeHtml(current.endpoint)}" placeholder="https://generativelanguage.googleapis.com/v1beta" />
           </label>
-          <label class="api-config-field">模型 ID
+          <label class="api-config-field">妯″瀷 ID
             <input id="apiConfigModelInput" type="text" value="${escapeHtml(current.modelId)}" placeholder="gemini-2.5-flash-preview-09-2025" />
           </label>
         `;
@@ -120,7 +123,7 @@
           }
           cleanup();
           setGeminiApiConfig(config);
-          customAlert("API 配置已保存，可以使用 AI 功能了。");
+          customAlert("API 配置已保存，可以使用 AI 功能。");
           if (typeof afterSave === "function") afterSave();
         };
         cancelBtn.onclick = cleanup;
@@ -143,7 +146,7 @@
       }
       
       function showLoading(msg) {
-        document.getElementById('loadingMessage').textContent = msg || "加载中...";
+        document.getElementById('loadingMessage').textContent = msg || "鍔犺浇涓?..";
         document.getElementById('loadingModal').style.display = 'flex';
       }
       
@@ -204,7 +207,7 @@
           configureGeminiApiKey(() => generateAIWorkflow(topic));
           return;
         }
-        showLoading("✨ 正在召唤AI规划流程，请稍候...");
+        showLoading("正在调用 AI 规划流程，请稍等...");
         
         const schema = {
           type: "OBJECT",
@@ -234,7 +237,7 @@
           }
         };
 
-        const sys = "你是一个专业的工作流规划专家。请将任务拆解为逻辑连贯的步骤。生成5到10个关键节点。每个节点需要明确的名称(title)、执行说明(description)和合理的阶段分类(category)。通过 edges 数组构建节点的先后执行顺序，必须是一个有向无环图。";
+        const sys = "你是一个专业的工作流规划专家。请将任务拆解为逻辑连贯的步骤，生成 5 到 10 个关键节点。每个节点需要包含 title、description 和 category，并通过 edges 构建有向无环图。";
         const prompt = `请为主题“${topic}”生成一份标准的工作流程图。`;
         
         const result = await callGeminiAPI(prompt, sys, schema);
@@ -247,7 +250,7 @@
             id: n.id,
             title: n.title || "未命名",
             description: n.description || "",
-            category: n.category || "默认分组",
+            category: n.category || "榛樿鍒嗙粍",
             status: "waiting",
             x: 0,
             y: 0,
@@ -267,7 +270,7 @@
           
           appData.data[newId] = {
             workflowTitle: topic,
-            projectCategory: "AI 生成项目",
+            projectCategory: "AI 鐢熸垚椤圭洰",
             updatedAt: Date.now(),
             selectedNodeId: newNodes[0] ? newNodes[0].id : null,
             selectedNodeIds: newNodes[0] ? [newNodes[0].id] : [],
@@ -283,11 +286,11 @@
           
           showEditor(newId);
           autoLayout(); 
-          saveState("✨ AI 已成功为你规划了节点路线！");
+          saveState("AI 已成功规划节点路线");
         }
       }
 
-      // 触发 AI 补全选中节点的备注说明
+      // 触发 AI 补全选中节点备注
       async function generateAIDescription() {
         const node = getSelectedNode();
         if (!node) return;
@@ -296,9 +299,9 @@
           return;
         }
         
-        showLoading("AI 正在为你撰写说明...");
+        showLoading("AI 正在编写说明...");
         
-        const sys = "你是一位极具经验的项目执行顾问。根据用户提供的[节点名称]及[分类]，撰写一段约30~50字的专业执行说明。直接返回说明文本，不要有任何客套话。";
+        const sys = "你是项目执行顾问。根据节点名称和分类，写一段 30 到 50 字的专业执行说明，只返回说明文本。";
         const prompt = `节点名称: ${node.title}\n所属分类: ${node.category}\n请为该节点补充执行说明。`;
         
         const text = await callGeminiAPI(prompt, sys);
@@ -307,7 +310,7 @@
         if (text) {
           updateSelectedNode({ description: text });
           els.nodeDescriptionInput.value = text;
-          saveState("✨ AI 已完成节点备注编写！");
+          saveState("AI 已完成节点备注编写");
         }
       }
 
@@ -315,7 +318,7 @@
         running: "进行中",
         done: "已完成",
         waiting: "等待中",
-        failed: "失败",
+        failed: "澶辫触",
       };
 
       const defaultState = {
@@ -352,10 +355,10 @@
         ],
       };
 
-      // ==== 弹窗拦截修复：自定义弹窗 ====
+      // ==== 寮圭獥鎷︽埅淇锛氳嚜瀹氫箟寮圭獥 ====
       function customConfirm(message, onConfirm) {
         const modal = document.getElementById('confirmModal');
-        document.getElementById('confirmTitle').textContent = "确认操作";
+        document.getElementById('confirmTitle').textContent = "纭鎿嶄綔";
         document.getElementById('confirmMessage').textContent = message;
         document.getElementById('confirmInput').style.display = 'none';
         
@@ -376,7 +379,7 @@
 
       function customAlert(message) {
         const modal = document.getElementById('confirmModal');
-        document.getElementById('confirmTitle').textContent = "提示";
+        document.getElementById('confirmTitle').textContent = "鎻愮ず";
         document.getElementById('confirmMessage').textContent = message;
         document.getElementById('confirmInput').style.display = 'none';
         
@@ -437,7 +440,7 @@
           
           const initialState = legacyState && legacyState.nodes ? legacyState : deepClone(defaultState);
           initialState.updatedAt = initialState.updatedAt || Date.now();
-          initialState.projectCategory = initialState.projectCategory || "默认分组";
+          initialState.projectCategory = initialState.projectCategory || "榛樿鍒嗙粍";
           
           data = { activeId: "ws-default", data: { "ws-default": initialState } };
         }
@@ -447,8 +450,8 @@
         for (const key in data.data) {
           const ws = data.data[key];
           data.data[key] = {
-            workflowTitle: ws.workflowTitle || "未命名工作流",
-            projectCategory: ws.projectCategory || "默认分组",
+            workflowTitle: ws.workflowTitle || "鏈懡鍚嶅伐浣滄祦",
+            projectCategory: ws.projectCategory || "榛樿鍒嗙粍",
             updatedAt: ws.updatedAt || Date.now(),
             selectedNodeId: ws.selectedNodeId || null,
             selectedNodeIds: ws.selectedNodeIds || (ws.selectedNodeId ? [ws.selectedNodeId] : []),
@@ -649,26 +652,83 @@
       function getNodeImageSrc(node) {
         if (node.imageData) return node.imageData;
         if (!node.imagePath || !supabaseClient || !currentUser) return "";
-        const cached = signedImageUrlCache.get(node.imagePath);
+        const cached = getCachedSignedImageUrl(node.imagePath);
         if (cached) return cached;
-        hydrateNodeImageUrl(node.imagePath);
+        queueNodeImageUrlHydration(node.imagePath);
         return "";
       }
 
-      async function hydrateNodeImageUrl(path) {
-        if (signedImageUrlPending.has(path)) return;
+      function getCachedSignedImageUrl(path) {
+        const cached = signedImageUrlCache.get(path);
+        if (!cached) return "";
+        if (typeof cached === "string") return cached;
+        if (cached.expiresAt > Date.now()) return cached.url;
+        signedImageUrlCache.delete(path);
+        return "";
+      }
+
+      function setCachedSignedImageUrl(path, signedUrl) {
+        if (!path || !signedUrl) return;
+        signedImageUrlCache.set(path, {
+          url: signedUrl,
+          expiresAt: Date.now() + (SIGNED_IMAGE_URL_TTL_SECONDS - 60) * 1000,
+        });
+      }
+
+      function queueNodeImageUrlHydration(path) {
+        if (!path || signedImageUrlCache.has(path) || signedImageUrlPending.has(path)) return;
         signedImageUrlPending.add(path);
-        const { data, error } = await supabaseClient
-          .storage
-          .from(SUPABASE_IMAGE_BUCKET)
-          .createSignedUrl(path, 60 * 60);
-        signedImageUrlPending.delete(path);
-        if (error) {
-          console.error("Create signed image URL failed:", error);
-          return;
+        window.clearTimeout(signedImageUrlTimer);
+        signedImageUrlTimer = window.setTimeout(hydrateQueuedNodeImageUrls, SIGNED_IMAGE_BATCH_DELAY_MS);
+      }
+
+      async function hydrateQueuedNodeImageUrls() {
+        if (!supabaseClient || !currentUser || !signedImageUrlPending.size) return;
+        const paths = Array.from(signedImageUrlPending).slice(0, SIGNED_IMAGE_BATCH_SIZE);
+        const storage = supabaseClient.storage.from(SUPABASE_IMAGE_BUCKET);
+
+        try {
+          const { data, error } = await storage.createSignedUrls(paths, SIGNED_IMAGE_URL_TTL_SECONDS);
+          if (error) throw error;
+          (data || []).forEach((item, index) => {
+            const path = item.path || paths[index];
+            if (item.signedUrl) setCachedSignedImageUrl(path, item.signedUrl);
+          });
+        } catch (batchError) {
+          console.error("Batch signed image URL failed:", batchError);
+          await Promise.all(paths.map(async (path) => {
+            try {
+              const { data, error } = await storage.createSignedUrl(path, SIGNED_IMAGE_URL_TTL_SECONDS);
+              if (error) throw error;
+              setCachedSignedImageUrl(path, data.signedUrl);
+            } catch (error) {
+              console.error("Create signed image URL failed:", error);
+            }
+          }));
+        } finally {
+          paths.forEach((path) => signedImageUrlPending.delete(path));
+          updateSignedImageElements(paths);
+          if (signedImageUrlPending.size) {
+            window.clearTimeout(signedImageUrlTimer);
+            signedImageUrlTimer = window.setTimeout(hydrateQueuedNodeImageUrls, SIGNED_IMAGE_BATCH_DELAY_MS);
+          }
         }
-        signedImageUrlCache.set(path, data.signedUrl);
-        renderCurrentViewAfterSync();
+      }
+
+      function updateSignedImageElements(paths) {
+        const pathSet = new Set(paths);
+        document.querySelectorAll("[data-image-path]").forEach((element) => {
+          const path = element.dataset.imagePath;
+          const signedUrl = getCachedSignedImageUrl(path);
+          if (!pathSet.has(path) || !signedUrl) return;
+          if (element.tagName === "IMG") {
+            element.src = signedUrl;
+            return;
+          }
+          const title = element.dataset.imageTitle || "";
+          element.classList.remove("image-loading");
+          element.innerHTML = `<img src="${signedUrl}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" data-image-path="${escapeHtml(path)}" />`;
+        });
       }
 
       function normalizeCamera(camera, legacyZoom) {
@@ -715,15 +775,15 @@
 
       function getCategoryColor(category) {
         const palettes = [
-          { bg: '#f3e8ff', text: '#9b51e0' }, // 紫色 
-          { bg: '#eaf3ff', text: '#4b8df7' }, // 蓝色
-          { bg: '#e9f8f0', text: '#35bd83' }, // 绿色
-          { bg: '#fff3e4', text: '#f4a24c' }, // 橙色
-          { bg: '#fff0f0', text: '#df5d61' }, // 红色
-          { bg: '#f2f5f9', text: '#69758a' }  // 灰色 (默认)
+          { bg: '#f3e8ff', text: '#9b51e0' }, // 绱壊 
+          { bg: '#eaf3ff', text: '#4b8df7' }, // 钃濊壊
+          { bg: '#e9f8f0', text: '#35bd83' }, // 缁胯壊
+          { bg: '#fff3e4', text: '#f4a24c' }, // 姗欒壊
+          { bg: '#fff0f0', text: '#df5d61' }, // 绾㈣壊
+          { bg: '#f2f5f9', text: '#69758a' }  // 鐏拌壊 (榛樿)
         ];
         
-        if (!category || category === '默认分组' || category === '未分类') {
+        if (!category || category === "默认分组" || category === "未分类") {
           return palettes[5];
         }
         
@@ -756,9 +816,10 @@
       let currentAccessToken = null;
       const signedImageUrlCache = new Map();
       const signedImageUrlPending = new Set();
+      let signedImageUrlTimer = null;
       let clipboard = []; 
 
-      // === 历史撤销栈 ===
+      // === 鍘嗗彶鎾ら攢鏍?===
       let undoStack = [];
       
       function pushUndo() {
@@ -788,7 +849,7 @@
           render();
           els.footerText.textContent = "已撤销上一步操作";
         } else {
-          els.footerText.textContent = "没有可撤销的操作了";
+          els.footerText.textContent = "娌℃湁鍙挙閿€鐨勬搷浣滀簡";
         }
       }
 
@@ -896,10 +957,10 @@
         }
         if (!configured) {
           els.authStatus.textContent = "本地模式";
-          els.loginOpenBtn.title = "填写 supabase-config.js 后可登录同步";
+          els.loginOpenBtn.title = "濉啓 supabase-config.js 鍚庡彲鐧诲綍鍚屾";
         } else if (!sdkReady) {
           els.authStatus.textContent = "同步未加载";
-          els.loginOpenBtn.title = "Supabase SDK 未加载，请检查网络或部署环境";
+          els.loginOpenBtn.title = "Supabase SDK 鏈姞杞斤紝璇锋鏌ョ綉缁滄垨閮ㄧ讲鐜";
         } else {
           els.authStatus.textContent = "未登录";
           els.loginOpenBtn.title = "登录后按账号保存工作流";
@@ -908,7 +969,7 @@
 
       function openAuthModal() {
         if (!isSupabaseConfigured()) {
-          customAlert("请先填写 supabase-config.js 中的 Supabase URL 和 anon key，再使用登录同步。");
+          customAlert("请先填写 supabase-config.js 中的 Supabase URL 和 anon key。");
           return;
         }
         if (!initSupabaseClient()) {
@@ -941,7 +1002,7 @@
       async function signInUser() {
         const value = getAuthFormValue();
         if (!value || !initSupabaseClient()) return;
-        showLoading("正在登录...");
+        showLoading("姝ｅ湪鐧诲綍...");
         const { error } = await supabaseClient.auth.signInWithPassword(value);
         hideLoading();
         if (error) {
@@ -954,7 +1015,7 @@
       async function registerUser() {
         const value = getAuthFormValue();
         if (!value || !initSupabaseClient()) return;
-        showLoading("正在注册...");
+        showLoading("姝ｅ湪娉ㄥ唽...");
         const { error } = await supabaseClient.auth.signUp(value);
         hideLoading();
         if (error) {
@@ -962,18 +1023,18 @@
           return;
         }
         closeAuthModal();
-        customAlert("注册成功。如果你的 Supabase 开启了邮箱验证，请先到邮箱完成验证后再登录。");
+        customAlert("注册成功。如果 Supabase 开启了邮箱验证，请先完成验证后再登录。");
       }
 
       async function signOutUser() {
         if (!initSupabaseClient()) return;
-        showLoading("正在退出...");
+        showLoading("姝ｅ湪閫€鍑?..");
         await supabaseClient.auth.signOut();
         currentUser = null;
         currentAccessToken = null;
         hideLoading();
         setAuthUi(null);
-        els.footerText.textContent = "已退出账号，当前使用本地模式";
+        els.footerText.textContent = "宸查€€鍑鸿处鍙凤紝褰撳墠浣跨敤鏈湴妯″紡";
       }
 
       function queueCloudSave() {
@@ -1009,7 +1070,7 @@
           }
         } catch (error) {
           console.error("Image upload failed:", error);
-          els.footerText.textContent = "本地已保存，图片云端上传失败";
+          els.footerText.textContent = "鏈湴宸蹭繚瀛橈紝鍥剧墖浜戠涓婁紶澶辫触";
           Object.values(appData.data || {}).forEach((workspace) => {
             (workspace.nodes || []).forEach((node) => {
               if (node.imageData && !node.imagePath) {
@@ -1031,10 +1092,10 @@
 
         if (error) {
           console.error("Supabase save failed:", error);
-          els.footerText.textContent = "本地已保存，云端同步失败";
+          els.footerText.textContent = "鏈湴宸蹭繚瀛橈紝浜戠鍚屾澶辫触";
         } else {
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
-          els.footerText.textContent = "本地和云端已同步";
+          els.footerText.textContent = "鏈湴鍜屼簯绔凡鍚屾";
         }
       }
 
@@ -1069,7 +1130,7 @@
           return;
         }
 
-        customConfirm("这会把当前浏览器里的全部项目数据覆盖上传到云端。确认继续？", async () => {
+        customConfirm("杩欎細鎶婂綋鍓嶆祻瑙堝櫒閲岀殑鍏ㄩ儴椤圭洰鏁版嵁瑕嗙洊涓婁紶鍒颁簯绔€傜‘璁ょ户缁紵", async () => {
           try {
             showLoading("正在上传当前数据到云端...");
             window.clearTimeout(saveTimer);
@@ -1135,7 +1196,7 @@
 
       async function loadCloudAppData() {
         if (!supabaseClient || !currentUser) return;
-        els.footerText.textContent = "正在后台同步云端数据...";
+        els.footerText.textContent = "姝ｅ湪鍚庡彴鍚屾浜戠鏁版嵁...";
 
         const localSnapshot = deepClone(appData);
         const localUpdatedAt = getAppDataUpdatedAt(localSnapshot);
@@ -1165,7 +1226,7 @@
             renderCurrentViewAfterSync();
           }
           await saveCloudAppDataNow();
-          els.footerText.textContent = "云端同步完成";
+          els.footerText.textContent = "浜戠鍚屾瀹屾垚";
           return;
         }
 
@@ -1189,7 +1250,7 @@
         } else if (cloudUpdatedAt > localUpdatedAt) {
           els.footerText.textContent = "已加载云端最新数据";
         } else {
-          els.footerText.textContent = "本地和云端已同步";
+          els.footerText.textContent = "鏈湴鍜屼簯绔凡鍚屾";
         }
         return;
 
@@ -1206,7 +1267,7 @@
         } else {
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
           await saveCloudAppDataNow();
-          els.footerText.textContent = "本地数据已同步到云端";
+          els.footerText.textContent = "鏈湴鏁版嵁宸插悓姝ュ埌浜戠";
         }
       }
 
@@ -1234,7 +1295,7 @@
       }
 
       /* =======================
-         自定义 Combo Box 下拉组件逻辑 (仅限顶部栏项目分类使用)
+         鑷畾涔?Combo Box 涓嬫媺缁勪欢閫昏緫 (浠呴檺椤堕儴鏍忛」鐩垎绫讳娇鐢?
          ======================= */
       function initComboBox(inputEl, dropdownEl, getOptionsFn, onSelect) {
         function updateOptions() {
@@ -1271,19 +1332,19 @@
         });
       }
 
-      // 初始化顶部项目的分类联想
+      // 鍒濆鍖栭《閮ㄩ」鐩殑鍒嗙被鑱旀兂
       initComboBox(
         els.projectCategoryInput, 
         els.projectCategoryDropdown,
         () => Array.from(new Set(Object.values(appData.data).map(ws => ws.projectCategory).filter(c => c))),
         (val) => {
-           state.projectCategory = val || "默认分组";
+           state.projectCategory = val || "榛樿鍒嗙粍";
            queueSave();
         }
       );
 
       /* =======================
-         视图控制逻辑
+         瑙嗗浘鎺у埗閫昏緫
          ======================= */
       function showDashboard() {
         els.editorView.classList.remove('active');
@@ -1308,14 +1369,14 @@
 
         const groups = {};
         workspaces.forEach(ws => {
-          const cat = ws.projectCategory || "默认分组";
+          const cat = ws.projectCategory || "榛樿鍒嗙粍";
           if (!groups[cat]) groups[cat] = [];
           groups[cat].push(ws);
         });
 
         const catKeys = Object.keys(groups).sort((a, b) => {
-           if(a === "默认分组") return -1;
-           if(b === "默认分组") return 1;
+           if(a === "榛樿鍒嗙粍") return -1;
+           if(b === "榛樿鍒嗙粍") return 1;
            return a.localeCompare(b);
         });
 
@@ -1335,7 +1396,7 @@
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                <span>新建项目</span>
+                <span>鏂板缓椤圭洰</span>
               </button>
             `;
           }
@@ -1357,9 +1418,9 @@
                  </div>
                  <div class="info">
                    <h3>${escapeHtml(ws.workflowTitle)}</h3>
-                   <p>更新于 ${dateStr}</p>
+                   <p>鏇存柊浜?${dateStr}</p>
                  </div>
-                 <button class="delete-project-btn" onclick="event.stopPropagation(); deleteWorkspace('${ws.id}')" title="删除项目">
+                 <button class="delete-project-btn" onclick="event.stopPropagation(); deleteWorkspace('${ws.id}')" title="鍒犻櫎椤圭洰">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                  </button>
               </div>
@@ -1372,14 +1433,14 @@
         if(catKeys.length === 0) {
            html = `
             <div class="dashboard-group">
-              <h2 class="group-title">默认分组</h2>
+              <h2 class="group-title">榛樿鍒嗙粍</h2>
               <div class="project-grid">
                 <button class="project-card new-project" onclick="createNewWorkspace()">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                   </svg>
-                  <span>新建项目</span>
+                  <span>鏂板缓椤圭洰</span>
                 </button>
               </div>
             </div>
@@ -1444,7 +1505,7 @@
 
 
       /* =======================
-         编辑器核心逻辑
+         缂栬緫鍣ㄦ牳蹇冮€昏緫
          ======================= */
       function saveState(message = "已自动保存到浏览器本地") {
         persistCurrentStateToLocalStorage();
@@ -1511,7 +1572,7 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        els.footerText.textContent = "当前项目已导出到本地文件";
+        els.footerText.textContent = "褰撳墠椤圭洰宸插鍑哄埌鏈湴鏂囦欢";
       }
 
       function normalizeImportedWorkspace(raw) {
@@ -1525,8 +1586,8 @@
         const selectedNodeIds = (imported.selectedNodeIds || []).filter((id) => nodeIds.has(id));
 
         return {
-          workflowTitle: imported.workflowTitle || "导入的工作流",
-          projectCategory: imported.projectCategory || "默认分组",
+          workflowTitle: imported.workflowTitle || "瀵煎叆鐨勫伐浣滄祦",
+          projectCategory: imported.projectCategory || "榛樿鍒嗙粍",
           updatedAt: Date.now(),
           selectedNodeId,
           selectedNodeIds: selectedNodeIds.length ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []),
@@ -1712,8 +1773,8 @@
       }
 
       function renderTitle() {
-        const title = state.workflowTitle || "未命名工作流";
-        const category = state.projectCategory || "默认分组";
+        const title = state.workflowTitle || "鏈懡鍚嶅伐浣滄祦";
+        const category = state.projectCategory || "榛樿鍒嗙粍";
         if (document.activeElement !== els.workflowTitleInput) {
           els.workflowTitleInput.value = title;
         }
@@ -1768,13 +1829,15 @@
 
           const imageSrc = getNodeImageSrc(node);
           const imageMarkup = imageSrc
-            ? `<span class="node-image"><img src="${imageSrc}" alt="${escapeHtml(node.title)}" /></span>`
-            : "";
+            ? `<span class="node-image"><img src="${imageSrc}" alt="${escapeHtml(node.title)}" loading="lazy" decoding="async" /></span>`
+            : node.imagePath
+              ? `<span class="node-image image-loading" data-image-path="${escapeHtml(node.imagePath)}" data-image-title="${escapeHtml(node.title)}"><span>图片加载中</span></span>`
+              : "";
 
           const linkMarkup = node.linkUrl
             ? `<a href="${escapeHtml(node.linkUrl)}" target="_blank" class="node-link" rel="noopener noreferrer" title="${escapeHtml(node.linkUrl)}">
                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                 <span>${escapeHtml(node.linkText || "打开链接")}</span>
+                 <span>${escapeHtml(node.linkText || "鎵撳紑閾炬帴")}</span>
                </a>`
             : "";
 
@@ -1956,7 +2019,7 @@
           let start, end, cp1, cp2;
 
           if (Math.abs(dx) > Math.abs(dy)) {
-            // 水平连接
+            // 姘村钩杩炴帴
             if (dx > 0) {
               start = { x: source.x + sRect.w, y: sCy }; 
               end = { x: target.x, y: tCy };             
@@ -1968,7 +2031,7 @@
             cp1 = { x: start.x + (dx > 0 ? dist : -dist), y: start.y };
             cp2 = { x: end.x + (dx > 0 ? -dist : dist), y: end.y };
           } else {
-            // 垂直连接
+            // 鍨傜洿杩炴帴
             if (dy > 0) {
               start = { x: sCx, y: source.y + sRect.h }; 
               end = { x: tCx, y: target.y };             
@@ -2005,7 +2068,7 @@
         els.nodeList.innerHTML = "";
         els.nodeCount.textContent = `${filtered.length}/${state.nodes.length}`;
 
-        // 分组
+        // 鍒嗙粍
         const grouped = {};
         filtered.forEach((node) => {
           const cat = node.category || "未分类";
@@ -2068,7 +2131,7 @@
         const count = state.selectedNodeIds.length;
         const fields = [
           els.nodeTitleInput,
-          els.nodeCategorySelect, // 这里使用 nodeCategorySelect
+          els.nodeCategorySelect, // 杩欓噷浣跨敤 nodeCategorySelect
           els.nodeColorInput,
           els.nodeDescriptionInput,
           els.nodeLinkUrlInput,
@@ -2076,14 +2139,14 @@
           els.nodeImageInput
         ];
 
-        // 构建右侧节点分类组 Select 选项
+        // 鏋勫缓鍙充晶鑺傜偣鍒嗙被缁?Select 閫夐」
         const categories = Array.from(new Set(state.nodes.map(n => n.category).filter(c => c)));
         let catHtml = '';
         categories.forEach(cat => {
           catHtml += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
         });
-        catHtml += `<option disabled>──────────</option>`;
-        catHtml += `<option value="__NEW__">➕ 新增分类...</option>`;
+        catHtml += `<option disabled>鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€</option>`;
+        catHtml += `<option value="__NEW__">鉃?鏂板鍒嗙被...</option>`;
         
         if (els.nodeCategorySelect.innerHTML !== catHtml) {
             els.nodeCategorySelect.innerHTML = catHtml;
@@ -2134,7 +2197,7 @@
         
         if (document.activeElement !== els.nodeTitleInput) els.nodeTitleInput.value = node.title;
         
-        // 动态添加当前可能已被删除但节点仍持有的孤儿分类
+        // 鍔ㄦ€佹坊鍔犲綋鍓嶅彲鑳藉凡琚垹闄や絾鑺傜偣浠嶆寔鏈夌殑瀛ゅ効鍒嗙被
         if (node && !categories.includes(node.category)) {
           els.nodeCategorySelect.insertAdjacentHTML('afterbegin', `<option value="${escapeHtml(node.category)}">${escapeHtml(node.category)}</option>`);
         }
@@ -2152,8 +2215,10 @@
         if (!els.imagePreview.classList.contains('drag-over')) {
           const imageSrc = getNodeImageSrc(node);
           els.imagePreview.innerHTML = imageSrc
-            ? `<img src="${imageSrc}" alt="${escapeHtml(node.title)}" />`
-            : "<span>未添加图片</span>";
+            ? `<img src="${imageSrc}" alt="${escapeHtml(node.title)}" loading="lazy" decoding="async" />`
+            : node.imagePath
+              ? `<span class="image-loading" data-image-path="${escapeHtml(node.imagePath)}" data-image-title="${escapeHtml(node.title)}">图片加载中</span>`
+              : "<span>未添加图片</span>";
         }
       }
 
@@ -2182,11 +2247,11 @@
         els.deleteEdgeBtn.disabled = !state.selectedEdgeId;
 
         if (isConnectMode && connectSourceId) {
-          els.connectionHint.textContent = `选择目标节点：${getNode(connectSourceId)?.title || ""}`;
+          els.connectionHint.textContent = `閫夋嫨鐩爣鑺傜偣锛?{getNode(connectSourceId)?.title || ""}`;
           return;
         }
 
-        els.connectionHint.textContent = isConnectMode ? "先选择起点节点" : "Shift框选 | Ctrl拖拽或C/V复制 | Ctrl+Z撤销";
+        els.connectionHint.textContent = isConnectMode ? "鍏堥€夋嫨璧风偣鑺傜偣" : "Shift妗嗛€?| Ctrl鎷栨嫿鎴朇/V澶嶅埗 | Ctrl+Z鎾ら攢";
       }
 
       function startBoxSelect(event) {
@@ -2547,7 +2612,7 @@
           
           state.selectedEdgeId = null;
           render();
-          saveState("已删除节点并保存");
+          saveState("宸插垹闄よ妭鐐瑰苟淇濆瓨");
           deleteStoragePaths(imagePaths);
         });
       }
@@ -2691,7 +2756,7 @@
         renderEdges();
         renderMiniMap();
         fitToNodes();
-        saveState("已智能排版并保存");
+        saveState("宸叉櫤鑳芥帓鐗堝苟淇濆瓨");
       }
 
       function setZoom(nextZoom, anchorClientX = null, anchorClientY = null) {
@@ -2719,11 +2784,11 @@
         const node = getSelectedNode();
         if (!node || !file) return;
         if (!file.type.startsWith("image/")) {
-          els.footerText.textContent = "请选择图片文件";
+          els.footerText.textContent = "璇烽€夋嫨鍥剧墖鏂囦欢";
           return;
         }
         try {
-          els.footerText.textContent = "正在压缩图片...";
+          els.footerText.textContent = "姝ｅ湪鍘嬬缉鍥剧墖...";
           node.imageData = await compressImageFile(file);
           node.imagePath = "";
           node.imageDirty = true;
@@ -2763,7 +2828,7 @@
           .replace(/'/g, "&#039;");
       }
 
-      // UI 事件监听
+      // UI 浜嬩欢鐩戝惉
       els.searchInput.addEventListener("input", (event) => {
         searchTerm = event.target.value;
         renderList();
@@ -2777,13 +2842,13 @@
 
       els.nodeTitleInput.addEventListener("input", (event) => updateSelectedNode({ title: event.target.value || "未命名节点" }));
       
-      // === 修改点：节点分类输入监听 ===
+      // === 淇敼鐐癸細鑺傜偣鍒嗙被杈撳叆鐩戝惉 ===
       els.nodeCategorySelect.addEventListener("change", (event) => {
         if (event.target.value === "__NEW__") {
           const node = getSelectedNode();
           if (node) event.target.value = node.category || "默认分组"; 
           
-          customPrompt("新增分类", "请输入新分类的名称：", "", (newCat) => {
+          customPrompt("鏂板鍒嗙被", "璇疯緭鍏ユ柊鍒嗙被鐨勫悕绉帮細", "", (newCat) => {
             if (newCat) {
               updateSelectedNode({ category: newCat });
               renderDetail(); 
@@ -2819,7 +2884,7 @@
       document.querySelector("#miniMinus").addEventListener("click", () => setZoom(state.camera.zoom - 0.1));
 
       els.aiGenerateBtn.addEventListener("click", () => {
-        customPrompt("✨ 智能生成工作流", "请输入你想做的工作任务或流程主题：", "策划一场产品发布会", (val) => {
+        customPrompt("智能生成工作流", "请输入你想做的工作任务或流程主题：", "策划一场产品发布会", (val) => {
           generateAIWorkflow(val);
         });
       });
@@ -2837,7 +2902,7 @@
         if (event.target === els.authModal) closeAuthModal();
       });
 
-      // 画布指针事件
+      // 鐢诲竷鎸囬拡浜嬩欢
       els.canvasViewport.addEventListener("pointerdown", (event) => {
         const isBackground = !event.target.closest('.node-card');
         if (isBackground && event.shiftKey && event.button === 0) {
@@ -2884,7 +2949,7 @@
       els.canvasViewport.addEventListener("wheel", zoomWithWheel, { passive: false });
       els.canvasViewport.addEventListener("auxclick", (event) => event.preventDefault());
 
-      // 键盘快捷键支持 (复制/粘贴/删除/撤销)
+      // 閿洏蹇嵎閿敮鎸?(澶嶅埗/绮樿创/鍒犻櫎/鎾ら攢)
       window.addEventListener("keydown", (event) => {
         if (!els.editorView.classList.contains("active")) return;
         const tagName = event.target?.tagName;
@@ -2900,18 +2965,18 @@
         }
 
         if (event.ctrlKey || event.metaKey) {
-          // 撤销 Ctrl+Z
+          // 鎾ら攢 Ctrl+Z
           if (event.key.toLowerCase() === 'z') {
             event.preventDefault();
             performUndo();
             return;
           }
 
-          // 复制 Ctrl+C
+          // 澶嶅埗 Ctrl+C
           if (event.key.toLowerCase() === 'c') {
             clipboard = state.selectedNodeIds.map(id => deepClone(getNode(id)));
           } 
-          // 粘贴 Ctrl+V
+          // 绮樿创 Ctrl+V
           else if (event.key.toLowerCase() === 'v') {
             if (clipboard.length > 0) {
               const newIds = [];
@@ -2938,7 +3003,7 @@
         }
       });
 
-      // 画布：处理批量拖入图片创建多个新节点
+      // 鐢诲竷锛氬鐞嗘壒閲忔嫋鍏ュ浘鐗囧垱寤哄涓柊鑺傜偣
       els.canvasViewport.addEventListener("dragover", (event) => {
         event.preventDefault(); 
         if (event.dataTransfer.types.includes("Files")) {
@@ -2953,7 +3018,7 @@
         event.preventDefault();
         els.canvasViewport.classList.remove("drag-over");
 
-        // 过滤出所有的图片文件
+        // 杩囨护鍑烘墍鏈夌殑鍥剧墖鏂囦欢
         const files = Array.from(event.dataTransfer.files).filter(f => f.type.startsWith("image/"));
         if (files.length === 0) return;
 
@@ -2973,7 +3038,7 @@
               id,
               title: `图片节点 ${index + 1}`,
               status: "waiting",
-              // 分别产生一定的坐标偏移，错开排列
+              // 鍒嗗埆浜х敓涓€瀹氱殑鍧愭爣鍋忕Щ锛岄敊寮€鎺掑垪
               x: worldPos.x - NODE_WIDTH / 2 + (index * 25), 
               y: worldPos.y - 70 / 2 + (index * 25), 
               category: defaultCat,
@@ -3001,7 +3066,7 @@
         });
       });
 
-      // 属性面板：处理拖入图片替换节点图片
+      // 灞炴€ч潰鏉匡細澶勭悊鎷栧叆鍥剧墖鏇挎崲鑺傜偣鍥剧墖
       els.imagePreview.addEventListener("dragover", (event) => {
         event.preventDefault();
         if (event.dataTransfer.types.includes("Files")) {
@@ -3021,15 +3086,15 @@
         }
       });
 
-      // 关闭大图预览
+      // 鍏抽棴澶у浘棰勮
       document.getElementById('imagePreviewModal').addEventListener('click', function() {
         this.style.display = 'none';
       });
 
-      // 启动并渲染控制台主页
+      // 鍚姩骞舵覆鏌撴帶鍒跺彴涓婚〉
       renderApiConfigState();
       showDashboard();
       initAuth();
       
-      // 初始化撤销栈
-      pushUndo();
+      // 鍒濆鍖栨挙閿€鏍?      pushUndo();
+
