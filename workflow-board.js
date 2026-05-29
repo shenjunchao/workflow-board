@@ -250,7 +250,7 @@
             id: n.id,
             title: n.title || "未命名",
             description: n.description || "",
-            category: n.category || "榛樿鍒嗙粍",
+            category: n.category || "默认分组",
             status: "waiting",
             x: 0,
             y: 0,
@@ -270,7 +270,7 @@
           
           appData.data[newId] = {
             workflowTitle: topic,
-            projectCategory: "AI 鐢熸垚椤圭洰",
+            projectCategory: "AI 生成项目",
             updatedAt: Date.now(),
             selectedNodeId: newNodes[0] ? newNodes[0].id : null,
             selectedNodeIds: newNodes[0] ? [newNodes[0].id] : [],
@@ -440,7 +440,7 @@
           
           const initialState = legacyState && legacyState.nodes ? legacyState : deepClone(defaultState);
           initialState.updatedAt = initialState.updatedAt || Date.now();
-          initialState.projectCategory = initialState.projectCategory || "榛樿鍒嗙粍";
+          initialState.projectCategory = initialState.projectCategory || "默认分组";
           
           data = { activeId: "ws-default", data: { "ws-default": initialState }, deletedWorkspaces: {} };
         }
@@ -451,8 +451,8 @@
         for (const key in data.data) {
           const ws = data.data[key];
           data.data[key] = {
-            workflowTitle: ws.workflowTitle || "鏈懡鍚嶅伐浣滄祦",
-            projectCategory: ws.projectCategory || "榛樿鍒嗙粍",
+            workflowTitle: ws.workflowTitle || "未命名工作流",
+            projectCategory: ws.projectCategory || "默认分组",
             updatedAt: ws.updatedAt || Date.now(),
             selectedNodeId: ws.selectedNodeId || null,
             selectedNodeIds: ws.selectedNodeIds || (ws.selectedNodeId ? [ws.selectedNodeId] : []),
@@ -859,6 +859,8 @@
       let editingNodeId = null;
       let isConnectMode = false;
       let connectSourceId = null;
+      let viewportRenderFrame = null;
+      let viewportSaveTimer = null;
       let saveTimer = null;
       let cloudSaveTimer = null;
       let cloudSaveInFlight = false;
@@ -1390,7 +1392,7 @@
         els.projectCategoryDropdown,
         () => Array.from(new Set(Object.values(appData.data).map(ws => ws.projectCategory).filter(c => c))),
         (val) => {
-           state.projectCategory = val || "榛樿鍒嗙粍";
+           state.projectCategory = val || "默认分组";
            queueSave();
         }
       );
@@ -1421,14 +1423,14 @@
 
         const groups = {};
         workspaces.forEach(ws => {
-          const cat = ws.projectCategory || "榛樿鍒嗙粍";
+          const cat = ws.projectCategory || "默认分组";
           if (!groups[cat]) groups[cat] = [];
           groups[cat].push(ws);
         });
 
         const catKeys = Object.keys(groups).sort((a, b) => {
-           if(a === "榛樿鍒嗙粍") return -1;
-           if(b === "榛樿鍒嗙粍") return 1;
+           if(a === "默认分组") return -1;
+           if(b === "默认分组") return 1;
            return a.localeCompare(b);
         });
 
@@ -1448,7 +1450,7 @@
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                <span>鏂板缓椤圭洰</span>
+                <span>新建项目</span>
               </button>
             `;
           }
@@ -1470,9 +1472,9 @@
                  </div>
                  <div class="info">
                    <h3>${escapeHtml(ws.workflowTitle)}</h3>
-                   <p>鏇存柊浜?${dateStr}</p>
+                   <p>更新于 ${dateStr}</p>
                  </div>
-                 <button class="delete-project-btn" onclick="event.stopPropagation(); deleteWorkspace('${ws.id}')" title="鍒犻櫎椤圭洰">
+                 <button class="delete-project-btn" onclick="event.stopPropagation(); deleteWorkspace('${ws.id}')" title="删除项目">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                  </button>
               </div>
@@ -1485,14 +1487,14 @@
         if(catKeys.length === 0) {
            html = `
             <div class="dashboard-group">
-              <h2 class="group-title">榛樿鍒嗙粍</h2>
+              <h2 class="group-title">默认分组</h2>
               <div class="project-grid">
                 <button class="project-card new-project" onclick="createNewWorkspace()">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                   </svg>
-                  <span>鏂板缓椤圭洰</span>
+                  <span>新建项目</span>
                 </button>
               </div>
             </div>
@@ -1649,7 +1651,7 @@
 
         return {
           workflowTitle: imported.workflowTitle || "瀵煎叆鐨勫伐浣滄祦",
-          projectCategory: imported.projectCategory || "榛樿鍒嗙粍",
+          projectCategory: imported.projectCategory || "默认分组",
           updatedAt: Date.now(),
           selectedNodeId,
           selectedNodeIds: selectedNodeIds.length ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []),
@@ -1826,8 +1828,8 @@
       function render() {
         renderTitle();
         renderGrid();
-        renderEdges();
         renderCanvas();
+        renderEdges();
         renderList();
         renderDetail();
         renderMiniMap();
@@ -1835,8 +1837,8 @@
       }
 
       function renderTitle() {
-        const title = state.workflowTitle || "鏈懡鍚嶅伐浣滄祦";
-        const category = state.projectCategory || "榛樿鍒嗙粍";
+        const title = state.workflowTitle || "未命名工作流";
+        const category = state.projectCategory || "默认分组";
         if (document.activeElement !== els.workflowTitleInput) {
           els.workflowTitleInput.value = title;
         }
@@ -1861,8 +1863,37 @@
         els.zoomLabel.textContent = `${Math.round(state.camera.zoom * 100)}%`;
       }
 
-      function renderCanvas() {
+      function updateEdgeViewport() {
+        const rect = viewportRect();
+        const zoom = state.camera.zoom;
+        const viewX = -state.camera.x / zoom;
+        const viewY = -state.camera.y / zoom;
+        const viewW = Math.max(1, rect.width / zoom);
+        const viewH = Math.max(1, rect.height / zoom);
+        els.edgeLayer.setAttribute("viewBox", `${viewX} ${viewY} ${viewW} ${viewH}`);
+      }
+
+      function renderViewport() {
+        renderGrid();
+        updateEdgeViewport();
         els.nodeLayer.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.zoom})`;
+      }
+
+      function scheduleViewportRender() {
+        if (viewportRenderFrame) return;
+        viewportRenderFrame = window.requestAnimationFrame(() => {
+          viewportRenderFrame = null;
+          renderViewport();
+        });
+      }
+
+      function queueViewportSave() {
+        window.clearTimeout(viewportSaveTimer);
+        viewportSaveTimer = window.setTimeout(queueSave, 450);
+      }
+
+      function renderCanvas() {
+        renderViewport();
         els.nodeLayer.innerHTML = "";
 
         state.nodes.forEach((node) => {
@@ -1899,7 +1930,7 @@
           const linkMarkup = node.linkUrl
             ? `<a href="${escapeHtml(node.linkUrl)}" target="_blank" class="node-link" rel="noopener noreferrer" title="${escapeHtml(node.linkUrl)}">
                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                 <span>${escapeHtml(node.linkText || "鎵撳紑閾炬帴")}</span>
+                 <span>${escapeHtml(node.linkText || "打开链接")}</span>
                </a>`
             : "";
 
@@ -2032,14 +2063,7 @@
       }
 
       function renderEdges() {
-        const rect = viewportRect();
-        const zoom = state.camera.zoom;
-        const viewX = -state.camera.x / zoom;
-        const viewY = -state.camera.y / zoom;
-        const viewW = Math.max(1, rect.width / zoom);
-        const viewH = Math.max(1, rect.height / zoom);
-
-        els.edgeLayer.setAttribute("viewBox", `${viewX} ${viewY} ${viewW} ${viewH}`);
+        updateEdgeViewport();
         els.edgeLayer.innerHTML = "";
 
         const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
@@ -2588,10 +2612,8 @@
         if (!panning) return;
         state.camera.x = panning.cameraX + event.clientX - panning.startX;
         state.camera.y = panning.cameraY + event.clientY - panning.startY;
-        renderGrid();
-        renderEdges();
-        els.nodeLayer.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.zoom})`;
-        queueSave();
+        scheduleViewportRender();
+        queueViewportSave();
       }
 
       function endPan() {
@@ -2832,13 +2854,15 @@
         const afterScreenY = before.y * state.camera.zoom + state.camera.y;
         state.camera.x += anchorX - rect.left - afterScreenX;
         state.camera.y += anchorY - rect.top - afterScreenY;
-        render();
-        queueSave();
+        scheduleViewportRender();
+        queueViewportSave();
       }
 
       function zoomWithWheel(event) {
         event.preventDefault();
-        setZoom(state.camera.zoom + (event.deltaY > 0 ? -0.08 : 0.08), event.clientX, event.clientY);
+        const delta = Math.max(-120, Math.min(120, event.deltaY));
+        const zoomFactor = Math.exp(-delta * 0.0015);
+        setZoom(state.camera.zoom * zoomFactor, event.clientX, event.clientY);
       }
 
       async function addNodeImage(file) {
