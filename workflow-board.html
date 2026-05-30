@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>自定义工作流表</title>
-    <link rel="stylesheet" href="./workflow-board.css?v=1.0.2" />
+    <link rel="stylesheet" href="./workflow-board.css?v=1.0.3" />
   </head>
   <body>
 
@@ -34,7 +34,7 @@
             </svg>
           </button>
         </div>
-        <div class="help-icon" title="版本号：v1.0.1" data-version="版本号：v1.0.1">
+        <div class="help-icon" title="版本号：v1.0.3" data-version="版本号：v1.0.3">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
@@ -129,7 +129,7 @@
             <button id="addNodeBtn" type="button">新增节点</button>
             <button id="connectEdgeBtn" type="button">新增连线</button>
             <button id="deleteEdgeBtn" type="button" disabled>删除连线</button>
-            <div class="connection-hint" id="connectionHint">Shift框选 | Ctrl拖拽复制 | Ctrl+Z撤销</div>
+            <div class="connection-hint" id="connectionHint">Shift框选 | Ctrl拖拽或 C/V 复制 | Ctrl+Z撤销</div>
           </div>
           <div class="canvas-viewport" id="canvasViewport">
             <div class="canvas-grid" id="canvasGrid">
@@ -256,7 +256,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./supabase-config.js?v=1.0.2"></script>
-    <script src="./workflow-board.js?v=1.0.2"></script>
+    <script src="./supabase-config.js?v=1.0.3"></script>
+    <script src="./workflow-board.js?v=1.0.3"></script>
   </body>
 </html>

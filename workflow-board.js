@@ -24,7 +24,7 @@
       const SIGNED_IMAGE_BATCH_DELAY_MS = 80;
 
       /* =========================================================================
-         Gemini API 閰嶇疆涓庤姹傛柟娉?(鏅鸿兘 AI 鏍稿績)
+         Gemini API 配置与请求方法
          ========================================================================= */
       function getGeminiApiConfig() {
         let saved = null;
@@ -82,16 +82,16 @@
         const cancelBtn = document.getElementById('confirmCancelBtn');
         const okBtn = document.getElementById('confirmOkBtn');
 
-        title.textContent = "閰嶇疆 AI API";
+        title.textContent = "配置 AI API";
         message.innerHTML = `
-          <span class="api-config-note">閰嶇疆浼氫繚瀛樺湪褰撳墠娴忚鍣ㄦ湰鍦般€傝姹傚湴鍧€鍙～鍐欏熀纭€鍦板潃锛屼篃鍙～鍐欏寘鍚?{modelId} 鍜?{apiKey} 鐨勫畬鏁村湴鍧€銆?/span>
+          <span class="api-config-note">配置会保存在当前浏览器本地。请求地址可填写基础地址，也可填写包含 {modelId} 和 {apiKey} 的完整地址。</span>
           <label class="api-config-field">API Key
-            <input id="apiConfigKeyInput" type="password" autocomplete="off" value="${escapeHtml(current.apiKey)}" placeholder="璇疯緭鍏?API Key" />
+            <input id="apiConfigKeyInput" type="password" autocomplete="off" value="${escapeHtml(current.apiKey)}" placeholder="请输入 API Key" />
           </label>
-          <label class="api-config-field">璇锋眰鍦板潃
+          <label class="api-config-field">请求地址
             <input id="apiConfigEndpointInput" type="url" value="${escapeHtml(current.endpoint)}" placeholder="https://generativelanguage.googleapis.com/v1beta" />
           </label>
-          <label class="api-config-field">妯″瀷 ID
+          <label class="api-config-field">模型 ID
             <input id="apiConfigModelInput" type="text" value="${escapeHtml(current.modelId)}" placeholder="gemini-2.5-flash-preview-09-2025" />
           </label>
         `;
@@ -146,7 +146,7 @@
       }
       
       function showLoading(msg) {
-        document.getElementById('loadingMessage').textContent = msg || "鍔犺浇涓?..";
+        document.getElementById('loadingMessage').textContent = msg || "加载中...";
         document.getElementById('loadingModal').style.display = 'flex';
       }
       
@@ -318,7 +318,7 @@
         running: "进行中",
         done: "已完成",
         waiting: "等待中",
-        failed: "澶辫触",
+        failed: "失败",
       };
 
       const defaultState = {
@@ -355,10 +355,10 @@
         ],
       };
 
-      // ==== 寮圭獥鎷︽埅淇锛氳嚜瀹氫箟寮圭獥 ====
+      // 自定义弹窗，避免浏览器阻止原生 confirm。
       function customConfirm(message, onConfirm) {
         const modal = document.getElementById('confirmModal');
-        document.getElementById('confirmTitle').textContent = "纭鎿嶄綔";
+        document.getElementById('confirmTitle').textContent = "确认操作";
         document.getElementById('confirmMessage').textContent = message;
         document.getElementById('confirmInput').style.display = 'none';
         
@@ -379,7 +379,7 @@
 
       function customAlert(message) {
         const modal = document.getElementById('confirmModal');
-        document.getElementById('confirmTitle').textContent = "鎻愮ず";
+        document.getElementById('confirmTitle').textContent = "提示";
         document.getElementById('confirmMessage').textContent = message;
         document.getElementById('confirmInput').style.display = 'none';
         
@@ -430,6 +430,66 @@
         return JSON.parse(JSON.stringify(obj));
       }
 
+      const MOJIBAKE_MARKER_CODES = [0xfffd, 0x93c2, 0x93c7, 0x93c8, 0x9354, 0x9428, 0x9366, 0x95b0, 0x95ab, 0x6fc9, 0x59dd, 0x6d5c, 0x7ed4, 0x9417, 0x52ec, 0x6e70, 0x9422, 0x3126, 0x69f8, 0x9365, 0x95be, 0x935a, 0x7035, 0x7039, 0x7ead, 0x9359, 0x6827, 0x5f47, 0x5a09, 0x3125, 0x553d, 0x9427, 0x8bf2, 0x7d8d, 0x93be, 0x3089, 0x6522, 0x922d, 0x9231, 0x9241, 0x8133, 0x699b, 0x6a3f];
+      const MOJIBAKE_MARKER_CHARS = new Set(Array.from(String.fromCodePoint(...MOJIBAKE_MARKER_CODES)));
+      const MOJIBAKE_REPLACEMENTS = [
+        [String.fromCodePoint(...[0x699b, 0x6a3f, 0xe17b, 0x9352, 0x55d9, 0x7c8d]), "默认分组"],
+        [String.fromCodePoint(...[0x93c8, 0xe044, 0x61e1, 0x935a, 0x5d85, 0x4f10, 0x6d63, 0x6ec4, 0x7966]), "未命名工作流"],
+        [String.fromCodePoint(...[0x93c8, 0xe044, 0x61e1, 0x935a, 0x5d89, 0x300d, 0x9429, 0x3f]), "未命名项目"],
+        [String.fromCodePoint(...[0x93c8, 0xe044, 0x61e1, 0x935a, 0x5d88, 0x59ad, 0x9410, 0x3f]), "未命名节点"],
+        [String.fromCodePoint(...[0x41, 0x49, 0x20, 0x9422, 0x71b8, 0x579a, 0x6924, 0x572d, 0x6d30]), "AI 生成项目"],
+        [String.fromCodePoint(...[0x7edb, 0x6827, 0x579d]), "策划"],
+        [String.fromCodePoint(...[0x6fb6, 0x8fab, 0x89e6]), "失败"],
+        [String.fromCodePoint(...[0x7035, 0x714e, 0x53c6, 0x9428, 0x52eb, 0x4f10, 0x6d63, 0x6ec4, 0x7966]), "导入的工作流"],
+        [String.fromCodePoint(...[0x93c2, 0x677f, 0xe583, 0x9352, 0x55d9, 0x88ab, 0x2e, 0x2e, 0x2e]), "新增分类..."],
+        [String.fromCodePoint(...[0x93c2, 0x677f, 0xe583, 0x9352, 0x55d9, 0x88ab]), "新增分类"],
+        [String.fromCodePoint(...[0x7487, 0x75af, 0x7ded, 0x934f, 0x30e6, 0x67ca, 0x9352, 0x55d9, 0x88ab, 0x9428, 0x52eb, 0x6095, 0x7ec9, 0x5e2e, 0x7d30]), "请输入新分类名称："],
+        [String.fromCodePoint(...[0x95ab, 0x590b, 0x5ae8, 0x9429, 0xe1bd, 0x7223, 0x947a, 0x509c, 0x5063, 0x951b, 0x3f]), "选择目标节点："],
+        [String.fromCodePoint(...[0x934f, 0x5825, 0x20ac, 0x590b, 0x5ae8, 0x74a7, 0x98ce, 0x5063, 0x947a, 0x509c, 0x5063]), "先选择起点节点"],
+        [String.fromCodePoint(...[0x53, 0x68, 0x69, 0x66, 0x74, 0x5997, 0x55db, 0x20ac, 0x3f]), "Shift框选"],
+        [String.fromCodePoint(...[0x43, 0x74, 0x72, 0x6c, 0x93b7, 0x6828, 0x5aff, 0x93b4, 0x6707, 0x2f, 0x56, 0x6fb6, 0x5d85, 0x57d7]), "Ctrl拖拽或 C/V 复制"],
+        [String.fromCodePoint(...[0x43, 0x74, 0x72, 0x6c, 0x93b7, 0x6828, 0x5aff, 0x6fb6, 0x5d85, 0x57d7]), "Ctrl拖拽复制"],
+        [String.fromCodePoint(...[0x43, 0x74, 0x72, 0x6c, 0x2b, 0x5a, 0x93be, 0x3089, 0x6522]), "Ctrl+Z撤销"],
+        [String.fromCodePoint(...[0x5bb8, 0x53c9, 0x6ae4, 0x9473, 0x82a5, 0x5e13, 0x9417, 0x581d, 0x82df, 0x6dc7, 0x6fc6, 0x74e8]), "已智能排版并保存"],
+      ];
+
+      function isLikelyMojibakeText(text) {
+        if (!text) return false;
+        if (text.includes(String.fromCodePoint(0xfffd))) return true;
+        let suspiciousCount = 0;
+        for (const ch of text) {
+          if (MOJIBAKE_MARKER_CHARS.has(ch)) suspiciousCount += 1;
+        }
+        return suspiciousCount >= 4 || (suspiciousCount >= 2 && (text.includes("?") || text.includes(String.fromCodePoint(0x20ac))));
+      }
+
+      function repairMojibakeText(value, fallback = "") {
+        if (typeof value !== "string") return value ?? fallback;
+        let text = value;
+        MOJIBAKE_REPLACEMENTS.forEach(([bad, good]) => {
+          text = text.split(bad).join(good);
+        });
+        return isLikelyMojibakeText(text) ? fallback : text;
+      }
+
+      function repairCategoryName(value) {
+        return repairMojibakeText(value || "默认分组", "默认分组").trim() || "默认分组";
+      }
+
+      function normalizeWorkspace(workspace = {}) {
+        return {
+          workflowTitle: repairMojibakeText(workspace.workflowTitle || "未命名工作流", "未命名工作流"),
+          projectCategory: repairCategoryName(workspace.projectCategory),
+          updatedAt: workspace.updatedAt || Date.now(),
+          selectedNodeId: workspace.selectedNodeId || null,
+          selectedNodeIds: workspace.selectedNodeIds || (workspace.selectedNodeId ? [workspace.selectedNodeId] : []),
+          selectedEdgeId: workspace.selectedEdgeId || null,
+          camera: normalizeCamera(workspace.camera, workspace.zoom),
+          nodes: (workspace.nodes || []).map(normalizeNode),
+          edges: (workspace.edges || []).map(normalizeEdge),
+        };
+      }
+
       function initAppData() {
         let data = null;
         try { data = JSON.parse(localStorage.getItem(APP_DATA_KEY)); } catch (e) {}
@@ -440,7 +500,7 @@
           
           const initialState = legacyState && legacyState.nodes ? legacyState : deepClone(defaultState);
           initialState.updatedAt = initialState.updatedAt || Date.now();
-          initialState.projectCategory = initialState.projectCategory || "默认分组";
+          initialState.projectCategory = repairCategoryName(initialState.projectCategory);
           
           data = { activeId: "ws-default", data: { "ws-default": initialState }, deletedWorkspaces: {} };
         }
@@ -449,19 +509,9 @@
         if (!data.data[data.activeId]) data.activeId = Object.keys(data.data)[0] || "ws-default";
 
         for (const key in data.data) {
-          const ws = data.data[key];
-          data.data[key] = {
-            workflowTitle: ws.workflowTitle || "未命名工作流",
-            projectCategory: ws.projectCategory || "默认分组",
-            updatedAt: ws.updatedAt || Date.now(),
-            selectedNodeId: ws.selectedNodeId || null,
-            selectedNodeIds: ws.selectedNodeIds || (ws.selectedNodeId ? [ws.selectedNodeId] : []),
-            selectedEdgeId: ws.selectedEdgeId || null,
-            camera: normalizeCamera(ws.camera, ws.zoom),
-            nodes: (ws.nodes || []).map(normalizeNode),
-            edges: (ws.edges || []).map(normalizeEdge),
-          };
+          data.data[key] = normalizeWorkspace(data.data[key]);
         }
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(data));
         return data;
       }
 
@@ -592,17 +642,17 @@
           if (deletedAt >= newestWorkspaceUpdatedAt) return;
 
           if (!cloudWorkspace) {
-            merged.data[workspaceId] = deepClone(localWorkspace);
+            merged.data[workspaceId] = normalizeWorkspace(deepClone(localWorkspace));
             return;
           }
           if (!localWorkspace) {
-            merged.data[workspaceId] = deepClone(cloudWorkspace);
+            merged.data[workspaceId] = normalizeWorkspace(deepClone(cloudWorkspace));
             return;
           }
 
           const cloudUpdatedAt = Number(cloudWorkspace.updatedAt) || 0;
           const localUpdatedAt = Number(localWorkspace.updatedAt) || 0;
-          merged.data[workspaceId] = deepClone(localUpdatedAt > cloudUpdatedAt ? localWorkspace : cloudWorkspace);
+          merged.data[workspaceId] = normalizeWorkspace(deepClone(localUpdatedAt > cloudUpdatedAt ? localWorkspace : cloudWorkspace));
         });
 
         if (!merged.data[merged.activeId]) {
@@ -794,17 +844,17 @@
       function normalizeNode(node) {
         return {
           id: String(node.id),
-          title: node.title || "未命名节点",
+          title: repairMojibakeText(node.title || "未命名节点", "未命名节点"),
           status: node.status || "waiting",
           x: Number.isFinite(node.x) ? node.x : 0,
           y: Number.isFinite(node.y) ? node.y : 0,
           width: Number.isFinite(node.width) ? node.width : null,
           height: Number.isFinite(node.height) ? node.height : null,
           color: node.color || "#ffffff",
-          category: node.category || "默认分组",
-          description: node.description || "",
+          category: repairCategoryName(node.category),
+          description: repairMojibakeText(node.description || "", node.description || ""),
           linkUrl: node.linkUrl || "",
-          linkText: node.linkText || "",
+          linkText: repairMojibakeText(node.linkText || "", ""),
           imageData: node.imageData || "",
           imagePath: node.imagePath || "",
           imageName: node.imageName || "",
@@ -827,12 +877,12 @@
 
       function getCategoryColor(category) {
         const palettes = [
-          { bg: '#f3e8ff', text: '#9b51e0' }, // 绱壊 
+          { bg: '#f3e8ff', text: '#9b51e0' }, // 紫色
           { bg: '#eaf3ff', text: '#4b8df7' }, // 钃濊壊
           { bg: '#e9f8f0', text: '#35bd83' }, // 缁胯壊
           { bg: '#fff3e4', text: '#f4a24c' }, // 姗欒壊
-          { bg: '#fff0f0', text: '#df5d61' }, // 绾㈣壊
-          { bg: '#f2f5f9', text: '#69758a' }  // 鐏拌壊 (榛樿)
+          { bg: '#fff0f0', text: '#df5d61' }, // 红色
+          { bg: '#f2f5f9', text: '#69758a' }  // 默认灰色
         ];
         
         if (!category || category === "默认分组" || category === "未分类") {
@@ -873,7 +923,7 @@
       let signedImageUrlTimer = null;
       let clipboard = []; 
 
-      // === 鍘嗗彶鎾ら攢鏍?===
+      // 历史撤销栈
       let undoStack = [];
       
       function pushUndo() {
@@ -1011,10 +1061,10 @@
         }
         if (!configured) {
           els.authStatus.textContent = "本地模式";
-          els.loginOpenBtn.title = "濉啓 supabase-config.js 鍚庡彲鐧诲綍鍚屾";
+          els.loginOpenBtn.title = "填写 supabase-config.js 后可登录同步";
         } else if (!sdkReady) {
           els.authStatus.textContent = "同步未加载";
-          els.loginOpenBtn.title = "Supabase SDK 鏈姞杞斤紝璇锋鏌ョ綉缁滄垨閮ㄧ讲鐜";
+          els.loginOpenBtn.title = "Supabase SDK 未加载，请检查网络或部署环境";
         } else {
           els.authStatus.textContent = "未登录";
           els.loginOpenBtn.title = "登录后按账号保存工作流";
@@ -1349,7 +1399,7 @@
       }
 
       /* =======================
-         鑷畾涔?Combo Box 涓嬫媺缁勪欢閫昏緫 (浠呴檺椤堕儴鏍忛」鐩垎绫讳娇鐢?
+         自定义 Combo Box 下拉组件
          ======================= */
       function initComboBox(inputEl, dropdownEl, getOptionsFn, onSelect) {
         function updateOptions() {
@@ -1386,7 +1436,7 @@
         });
       }
 
-      // 鍒濆鍖栭《閮ㄩ」鐩殑鍒嗙被鑱旀兂
+      // 初始化顶部项目分类联想。
       initComboBox(
         els.projectCategoryInput, 
         els.projectCategoryDropdown,
@@ -1398,7 +1448,7 @@
       );
 
       /* =======================
-         瑙嗗浘鎺у埗閫昏緫
+         视图控制
          ======================= */
       function showDashboard() {
         els.editorView.classList.remove('active');
@@ -1569,7 +1619,7 @@
 
 
       /* =======================
-         缂栬緫鍣ㄦ牳蹇冮€昏緫
+         编辑器核心逻辑
          ======================= */
       function saveState(message = "已自动保存到浏览器本地") {
         persistCurrentStateToLocalStorage();
@@ -1650,7 +1700,7 @@
         const selectedNodeIds = (imported.selectedNodeIds || []).filter((id) => nodeIds.has(id));
 
         return {
-          workflowTitle: imported.workflowTitle || "瀵煎叆鐨勫伐浣滄祦",
+          workflowTitle: repairMojibakeText(imported.workflowTitle || "导入的工作流", "导入的工作流"),
           projectCategory: imported.projectCategory || "默认分组",
           updatedAt: Date.now(),
           selectedNodeId,
@@ -2117,7 +2167,7 @@
             cp1 = { x: start.x + (dx > 0 ? dist : -dist), y: start.y };
             cp2 = { x: end.x + (dx > 0 ? -dist : dist), y: end.y };
           } else {
-            // 鍨傜洿杩炴帴
+            // 垂直连接
             if (dy > 0) {
               start = { x: sCx, y: source.y + sRect.h }; 
               end = { x: tCx, y: target.y };             
@@ -2154,7 +2204,7 @@
         els.nodeList.innerHTML = "";
         els.nodeCount.textContent = `${filtered.length}/${state.nodes.length}`;
 
-        // 鍒嗙粍
+        // 分组
         const grouped = {};
         filtered.forEach((node) => {
           const cat = node.category || "未分类";
@@ -2217,7 +2267,7 @@
         const count = state.selectedNodeIds.length;
         const fields = [
           els.nodeTitleInput,
-          els.nodeCategorySelect, // 杩欓噷浣跨敤 nodeCategorySelect
+          els.nodeCategorySelect,
           els.nodeColorInput,
           els.nodeDescriptionInput,
           els.nodeLinkUrlInput,
@@ -2225,14 +2275,14 @@
           els.nodeImageInput
         ];
 
-        // 鏋勫缓鍙充晶鑺傜偣鍒嗙被缁?Select 閫夐」
+        // 构建右侧节点分类下拉选项。
         const categories = Array.from(new Set(state.nodes.map(n => n.category).filter(c => c)));
         let catHtml = '';
         categories.forEach(cat => {
           catHtml += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
         });
-        catHtml += `<option disabled>鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€</option>`;
-        catHtml += `<option value="__NEW__">鉃?鏂板鍒嗙被...</option>`;
+        catHtml += `<option disabled>----------</option>`;
+        catHtml += `<option value="__NEW__">+ 新增分类...</option>`;
         
         if (els.nodeCategorySelect.innerHTML !== catHtml) {
             els.nodeCategorySelect.innerHTML = catHtml;
@@ -2283,7 +2333,7 @@
         
         if (document.activeElement !== els.nodeTitleInput) els.nodeTitleInput.value = node.title;
         
-        // 鍔ㄦ€佹坊鍔犲綋鍓嶅彲鑳藉凡琚垹闄や絾鑺傜偣浠嶆寔鏈夌殑瀛ゅ効鍒嗙被
+        // 如果节点仍持有已不存在的分类，临时加入下拉列表。
         if (node && !categories.includes(node.category)) {
           els.nodeCategorySelect.insertAdjacentHTML('afterbegin', `<option value="${escapeHtml(node.category)}">${escapeHtml(node.category)}</option>`);
         }
@@ -2333,11 +2383,11 @@
         els.deleteEdgeBtn.disabled = !state.selectedEdgeId;
 
         if (isConnectMode && connectSourceId) {
-          els.connectionHint.textContent = `閫夋嫨鐩爣鑺傜偣锛?{getNode(connectSourceId)?.title || ""}`;
+          els.connectionHint.textContent = `选择目标节点：${getNode(connectSourceId)?.title || ""}`;
           return;
         }
 
-        els.connectionHint.textContent = isConnectMode ? "鍏堥€夋嫨璧风偣鑺傜偣" : "Shift妗嗛€?| Ctrl鎷栨嫿鎴朇/V澶嶅埗 | Ctrl+Z鎾ら攢";
+        els.connectionHint.textContent = isConnectMode ? "先选择起点节点" : "Shift框选 | Ctrl拖拽或 C/V 复制 | Ctrl+Z撤销";
       }
 
       function startBoxSelect(event) {
@@ -2696,7 +2746,7 @@
           
           state.selectedEdgeId = null;
           render();
-          saveState("宸插垹闄よ妭鐐瑰苟淇濆瓨");
+          saveState("已删除节点并保存");
           deleteStoragePaths(imagePaths);
         });
       }
@@ -2840,7 +2890,7 @@
         renderEdges();
         renderMiniMap();
         fitToNodes();
-        saveState("宸叉櫤鑳芥帓鐗堝苟淇濆瓨");
+        saveState("已智能排版并保存");
       }
 
       function setZoom(nextZoom, anchorClientX = null, anchorClientY = null) {
@@ -2914,7 +2964,7 @@
           .replace(/'/g, "&#039;");
       }
 
-      // UI 浜嬩欢鐩戝惉
+      // UI 事件监听
       els.searchInput.addEventListener("input", (event) => {
         searchTerm = event.target.value;
         renderList();
@@ -2928,13 +2978,13 @@
 
       els.nodeTitleInput.addEventListener("input", (event) => updateSelectedNode({ title: event.target.value || "未命名节点" }));
       
-      // === 淇敼鐐癸細鑺傜偣鍒嗙被杈撳叆鐩戝惉 ===
+      // 节点分类输入监听
       els.nodeCategorySelect.addEventListener("change", (event) => {
         if (event.target.value === "__NEW__") {
           const node = getSelectedNode();
           if (node) event.target.value = node.category || "默认分组"; 
           
-          customPrompt("鏂板鍒嗙被", "璇疯緭鍏ユ柊鍒嗙被鐨勫悕绉帮細", "", (newCat) => {
+          customPrompt("新增分类", "请输入新分类名称：", "", (newCat) => {
             if (newCat) {
               updateSelectedNode({ category: newCat });
               renderDetail(); 
@@ -2988,7 +3038,7 @@
         if (event.target === els.authModal) closeAuthModal();
       });
 
-      // 鐢诲竷鎸囬拡浜嬩欢
+      // 画布指针事件
       els.canvasViewport.addEventListener("pointerdown", (event) => {
         const isBackground = !event.target.closest('.node-card');
         if (isBackground && event.shiftKey && event.button === 0) {
@@ -3035,7 +3085,7 @@
       els.canvasViewport.addEventListener("wheel", zoomWithWheel, { passive: false });
       els.canvasViewport.addEventListener("auxclick", (event) => event.preventDefault());
 
-      // 閿洏蹇嵎閿敮鎸?(澶嶅埗/绮樿创/鍒犻櫎/鎾ら攢)
+      // 键盘快捷键支持：复制、粘贴、删除、撤销
       window.addEventListener("keydown", (event) => {
         if (!els.editorView.classList.contains("active")) return;
         const tagName = event.target?.tagName;
@@ -3051,18 +3101,18 @@
         }
 
         if (event.ctrlKey || event.metaKey) {
-          // 鎾ら攢 Ctrl+Z
+          // 撤销 Ctrl+Z
           if (event.key.toLowerCase() === 'z') {
             event.preventDefault();
             performUndo();
             return;
           }
 
-          // 澶嶅埗 Ctrl+C
+          // 复制 Ctrl+C
           if (event.key.toLowerCase() === 'c') {
             clipboard = state.selectedNodeIds.map(id => deepClone(getNode(id)));
           } 
-          // 绮樿创 Ctrl+V
+          // 粘贴 Ctrl+V
           else if (event.key.toLowerCase() === 'v') {
             if (clipboard.length > 0) {
               const newIds = [];
@@ -3089,7 +3139,7 @@
         }
       });
 
-      // 鐢诲竷锛氬鐞嗘壒閲忔嫋鍏ュ浘鐗囧垱寤哄涓柊鑺傜偣
+      // 画布：批量拖入图片并创建多个图片节点
       els.canvasViewport.addEventListener("dragover", (event) => {
         event.preventDefault(); 
         if (event.dataTransfer.types.includes("Files")) {
@@ -3104,7 +3154,7 @@
         event.preventDefault();
         els.canvasViewport.classList.remove("drag-over");
 
-        // 杩囨护鍑烘墍鏈夌殑鍥剧墖鏂囦欢
+        // 过滤出所有图片文件
         const files = Array.from(event.dataTransfer.files).filter(f => f.type.startsWith("image/"));
         if (files.length === 0) return;
 
@@ -3124,7 +3174,7 @@
               id,
               title: `图片节点 ${index + 1}`,
               status: "waiting",
-              // 鍒嗗埆浜х敓涓€瀹氱殑鍧愭爣鍋忕Щ锛岄敊寮€鎺掑垪
+              // 给图片节点增加轻微坐标偏移，避免完全重叠
               x: worldPos.x - NODE_WIDTH / 2 + (index * 25), 
               y: worldPos.y - 70 / 2 + (index * 25), 
               category: defaultCat,
@@ -3152,7 +3202,7 @@
         });
       });
 
-      // 灞炴€ч潰鏉匡細澶勭悊鎷栧叆鍥剧墖鏇挎崲鑺傜偣鍥剧墖
+      // 属性面板：拖入图片替换节点图片
       els.imagePreview.addEventListener("dragover", (event) => {
         event.preventDefault();
         if (event.dataTransfer.types.includes("Files")) {
@@ -3172,15 +3222,16 @@
         }
       });
 
-      // 鍏抽棴澶у浘棰勮
+      // 关闭大图预览
       document.getElementById('imagePreviewModal').addEventListener('click', function() {
         this.style.display = 'none';
       });
 
-      // 鍚姩骞舵覆鏌撴帶鍒跺彴涓婚〉
+      // 启动并渲染控制台主页
       renderApiConfigState();
       showDashboard();
       initAuth();
       
-      // 鍒濆鍖栨挙閿€鏍?      pushUndo();
+      // 初始化撤销栈
+      pushUndo();
 
