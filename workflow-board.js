@@ -70,7 +70,7 @@
         const ready = hasGeminiApiConfig();
         btn.textContent = ready ? "API 已配置" : "配置 API";
         btn.classList.toggle("api-ready", ready);
-        btn.title = ready ? "宸查厤缃?API Key銆佽姹傚湴鍧€涓庢ā鍨?ID锛岀偣鍑诲彲閲嶆柊閰嶇疆" : "閰嶇疆 API Key銆佽姹傚湴鍧€涓庢ā鍨?ID 鍚庢墠鑳戒娇鐢?AI 鍔熻兘";
+        btn.title = ready ? "已配置 API Key、请求地址与模型 ID，点击可重新配置" : "配置 API Key、请求地址与模型 ID 后才能使用 AI 功能";
       }
 
       function configureGeminiApiKey(afterSave = null) {
@@ -903,7 +903,7 @@
           render();
           els.footerText.textContent = "已撤销上一步操作";
         } else {
-          els.footerText.textContent = "娌℃湁鍙挙閿€鐨勬搷浣滀簡";
+          els.footerText.textContent = "没有可撤销的操作了";
         }
       }
 
@@ -1056,7 +1056,7 @@
       async function signInUser() {
         const value = getAuthFormValue();
         if (!value || !initSupabaseClient()) return;
-        showLoading("姝ｅ湪鐧诲綍...");
+        showLoading("正在登录...");
         const { error } = await supabaseClient.auth.signInWithPassword(value);
         hideLoading();
         if (error) {
@@ -1069,7 +1069,7 @@
       async function registerUser() {
         const value = getAuthFormValue();
         if (!value || !initSupabaseClient()) return;
-        showLoading("姝ｅ湪娉ㄥ唽...");
+        showLoading("正在注册...");
         const { error } = await supabaseClient.auth.signUp(value);
         hideLoading();
         if (error) {
@@ -1082,13 +1082,13 @@
 
       async function signOutUser() {
         if (!initSupabaseClient()) return;
-        showLoading("姝ｅ湪閫€鍑?..");
+        showLoading("正在退出...");
         await supabaseClient.auth.signOut();
         currentUser = null;
         currentAccessToken = null;
         hideLoading();
         setAuthUi(null);
-        els.footerText.textContent = "宸查€€鍑鸿处鍙凤紝褰撳墠浣跨敤鏈湴妯″紡";
+        els.footerText.textContent = "已退出账号，当前使用本地模式";
       }
 
       function queueCloudSave() {
@@ -1124,7 +1124,7 @@
           }
         } catch (error) {
           console.error("Image upload failed:", error);
-          els.footerText.textContent = "鏈湴宸蹭繚瀛橈紝鍥剧墖浜戠涓婁紶澶辫触";
+          els.footerText.textContent = "本地已保存，图片云端上传失败";
           Object.values(appData.data || {}).forEach((workspace) => {
             (workspace.nodes || []).forEach((node) => {
               if (node.imageData && !node.imagePath) {
@@ -1146,10 +1146,10 @@
 
         if (error) {
           console.error("Supabase save failed:", error);
-          els.footerText.textContent = "鏈湴宸蹭繚瀛橈紝浜戠鍚屾澶辫触";
+          els.footerText.textContent = "本地已保存，云端同步失败";
         } else {
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
-          els.footerText.textContent = "鏈湴鍜屼簯绔凡鍚屾";
+          els.footerText.textContent = "本地和云端已同步";
         }
       }
 
@@ -1184,7 +1184,7 @@
           return;
         }
 
-        customConfirm("杩欎細鎶婂綋鍓嶆祻瑙堝櫒閲岀殑鍏ㄩ儴椤圭洰鏁版嵁瑕嗙洊涓婁紶鍒颁簯绔€傜‘璁ょ户缁紵", async () => {
+        customConfirm("这会把当前浏览器里的全部项目数据覆盖上传到云端。确认继续？", async () => {
           try {
             showLoading("正在上传当前数据到云端...");
             window.clearTimeout(saveTimer);
@@ -1250,7 +1250,7 @@
 
       async function loadCloudAppData() {
         if (!supabaseClient || !currentUser) return;
-        els.footerText.textContent = "姝ｅ湪鍚庡彴鍚屾浜戠鏁版嵁...";
+        els.footerText.textContent = "正在后台同步云端数据...";
 
         const localSnapshot = deepClone(appData);
         const localUpdatedAt = getAppDataUpdatedAt(localSnapshot);
@@ -1280,7 +1280,7 @@
             renderCurrentViewAfterSync();
           }
           await saveCloudAppDataNow();
-          els.footerText.textContent = "浜戠鍚屾瀹屾垚";
+          els.footerText.textContent = "云端同步完成";
           return;
         }
 
@@ -1304,7 +1304,7 @@
         } else if (cloudUpdatedAt > localUpdatedAt) {
           els.footerText.textContent = "已加载云端最新数据";
         } else {
-          els.footerText.textContent = "鏈湴鍜屼簯绔凡鍚屾";
+          els.footerText.textContent = "本地和云端已同步";
         }
         return;
 
@@ -1321,7 +1321,7 @@
         } else {
           localStorage.setItem(APP_OWNER_KEY, currentUser.id);
           await saveCloudAppDataNow();
-          els.footerText.textContent = "鏈湴鏁版嵁宸插悓姝ュ埌浜戠";
+          els.footerText.textContent = "本地数据已同步到云端";
         }
       }
 
@@ -1636,7 +1636,7 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        els.footerText.textContent = "褰撳墠椤圭洰宸插鍑哄埌鏈湴鏂囦欢";
+        els.footerText.textContent = "当前项目已导出到本地文件";
       }
 
       function normalizeImportedWorkspace(raw) {
@@ -2870,11 +2870,11 @@
         const node = getSelectedNode();
         if (!node || !file) return;
         if (!file.type.startsWith("image/")) {
-          els.footerText.textContent = "璇烽€夋嫨鍥剧墖鏂囦欢";
+          els.footerText.textContent = "请选择图片文件";
           return;
         }
         try {
-          els.footerText.textContent = "姝ｅ湪鍘嬬缉鍥剧墖...";
+          els.footerText.textContent = "正在压缩图片...";
           node.imageData = await compressImageFile(file);
           node.imagePath = "";
           node.imageDirty = true;
